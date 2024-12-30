@@ -1,4 +1,9 @@
-use std::{error::Error, fmt::Display, ops::Range, string::FromUtf8Error};
+use std::{
+    error::Error,
+    fmt::Display,
+    ops::{Bound, Range, RangeBounds},
+    string::FromUtf8Error,
+};
 
 pub type PResult<T> = Result<T, PError>;
 
@@ -9,6 +14,25 @@ pub enum PError {
     OutsideRange { found: u64, range: Range<u64> },
     Utf8(FromUtf8Error),
     NoCodec(u8),
+}
+
+impl PError {
+    pub(crate) fn new_range<T: Into<u64> + Copy>(found: T, range: impl RangeBounds<T>) -> Self {
+        let start = match range.start_bound() {
+            Bound::Included(s) => (*s).into(),
+            Bound::Excluded(s) => (*s).into() + 1,
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(s) => (*s).into() + 1,
+            Bound::Excluded(s) => (*s).into(),
+            Bound::Unbounded => u64::MAX,
+        };
+        PError::OutsideRange {
+            found: found.into(),
+            range: start..end,
+        }
+    }
 }
 
 impl Error for PError {}
