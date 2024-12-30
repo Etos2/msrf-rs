@@ -1,6 +1,8 @@
 use bitflags::bitflags;
 use std::collections::HashMap;
 
+use crate::CODEC_ID_EOS;
+
 pub type CodecTable = HashMap<u16, CodecEntry>;
 
 // TODO: Impl CodecOwned vs CodecRef?
@@ -172,6 +174,18 @@ impl RecordOwned {
             type_id,
             val: Some(val),
         }
+    }
+
+    pub fn from_eos() -> RecordOwned {
+        RecordOwned {
+            codec_id: CODEC_ID_EOS,
+            type_id: 0,
+            val: None,
+        }
+    }
+
+    pub fn is_eos(&self) -> bool {
+        self.codec_id == CODEC_ID_EOS
     }
 
     pub fn codec_id(&self) -> u16 {

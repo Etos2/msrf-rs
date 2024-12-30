@@ -45,6 +45,14 @@ impl<R: Read> RecordsIter<R> {
         self.error
     }
 
+    pub fn is_finished(&self) -> bool {
+        self.finished
+    }
+
+    pub fn has_error(&self) -> bool {
+        self.error.is_some()
+    }
+
     pub fn header(&self) -> Header {
         self.header.as_ref()
     }
@@ -54,13 +62,13 @@ impl<R: Read> Iterator for RecordsIter<R> {
     type Item = RecordOwned;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.finished {
+        if self.finished || self.error.is_some() {
             return None;
         }
 
         match parse_record(&mut self.rdr) {
             Ok(record) => {
-                if record.codec_id != CODEC_ID_EOS {
+                if !record.is_eos() {
                     Some(record)
                 } else {
                     self.finished = true;
@@ -69,7 +77,6 @@ impl<R: Read> Iterator for RecordsIter<R> {
             }
             Err(e) => {
                 self.error = Some(e);
-                self.finished = true;
                 None
             }
         }
@@ -108,23 +115,27 @@ fn header(mut rdr: impl Read) -> PResult<HeaderOwned> {
 }
 
 fn record(mut rdr: impl Read) -> PResult<RecordOwned> {
-    let codec_id = read_u16(&mut rdr)?;
-    let type_id = read_u16(&mut rdr)?;
-    let length = read_u32(&mut rdr)?;
+    match read_u16(&mut rdr)? {
+        CODEC_ID_EOS => Ok(RecordOwned::from_eos()),
+        codec_id => {
+            let type_id = read_u16(&mut rdr)?;
+            let length = read_u32(&mut rdr)?;
 
-    let val = if length != 0 {
-        let val = read_vec(&mut rdr, length as usize)?.into();
-        read_null(&mut rdr)?;
-        Some(val)
-    } else {
-        None
-    };
+            let val = if length != 0 {
+                let val = read_vec(&mut rdr, length as usize)?.into();
+                read_null(&mut rdr)?;
+                Some(val)
+            } else {
+                None
+            };
 
-    Ok(RecordOwned {
-        codec_id,
-        type_id,
-        val,
-    })
+            Ok(RecordOwned {
+                codec_id,
+                type_id,
+                val,
+            })
+        }
+    }
 }
 
 #[inline]
@@ -300,6 +311,32 @@ mod test {
             RecordOwned {
                 codec_id: 18,
                 type_id: 1,
+                val: None,
+            }
+        );
+
+        assert!(
+            rdr.position() as usize == input.len(),
+            "expected eof ({} bytes remaining)",
+            input.len() - rdr.position() as usize
+        );
+    }
+
+    #[test]
+    fn test_record_eos() {
+        let input = vec![0xFF, 0xFF]; // CodecID
+        let mut rdr = Cursor::new(&input);
+
+        let result = record(&mut rdr);
+        assert!(result.is_ok(), "parse error: {:?}", result);
+
+        let record = result.unwrap();
+        assert!(record.is_eos());
+        assert_eq!(
+            record,
+            RecordOwned {
+                codec_id: 65535,
+                type_id: 0,
                 val: None,
             }
         );
