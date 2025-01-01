@@ -3,16 +3,30 @@ use std::{
     fmt::Display,
     ops::{Bound, Range, RangeBounds},
     string::FromUtf8Error,
+    sync::Arc,
 };
 
 pub type PResult<T> = Result<T, PError>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub enum StringEncoding {
+    Utf8,
+}
+
+impl Display for StringEncoding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StringEncoding::Utf8 => write!(f, "utf8"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum PError {
-    Io(std::io::Error),
+    Io(Arc<std::io::Error>),
+    InvalidString(StringEncoding),
     MismatchBytes { found: Vec<u8>, expected: Vec<u8> },
     OutsideRange { found: u64, range: Range<u64> },
-    Utf8(FromUtf8Error),
     NoCodec(u8),
 }
 
@@ -38,19 +52,31 @@ impl PError {
 impl Error for PError {}
 
 impl Display for PError {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PError::Io(e) => e.fmt(f),
+            PError::InvalidString(enc) => write!(f, "invalid string ({enc})"),
+            PError::MismatchBytes { found, expected } => {
+                write!(f, "found {found:?} expected {expected:?}")
+            }
+            PError::OutsideRange { found, range } => write!(
+                f,
+                "found {found:?} outside range {}..{}",
+                range.start, range.end
+            ),
+            PError::NoCodec(id) => write!(f, "codec with id \'{id}\' does not exist"),
+        }
     }
 }
 
 impl From<std::io::Error> for PError {
     fn from(value: std::io::Error) -> Self {
-        PError::Io(value)
+        PError::Io(Arc::new(value))
     }
 }
 
 impl From<FromUtf8Error> for PError {
-    fn from(value: FromUtf8Error) -> Self {
-        PError::Utf8(value)
+    fn from(_value: FromUtf8Error) -> Self {
+        PError::InvalidString(StringEncoding::Utf8)
     }
 }

@@ -1,18 +1,18 @@
 use crate::{
-    data::{CodecEntry, CodecTable, Header, HeaderOwned, Record, RecordOwned},
+    data::{CodecEntry, Header, HeaderOwned, RecordOwned},
     error::{PError, PResult},
     DefaultOptions, CODEC_ID_EOS, MAGIC_BYTES,
 };
-use std::{borrow::Borrow, collections::HashMap, fmt::Error, io::Read, ops::RangeBounds};
+use std::{collections::HashMap, io::Read, ops::RangeBounds};
 
 pub struct Reader {
-    options: DefaultOptions,
+    _options: DefaultOptions,
 }
 
 impl Reader {
     pub fn new() -> Self {
         Reader {
-            options: DefaultOptions::default(),
+            _options: DefaultOptions::default(),
         }
     }
 
@@ -29,7 +29,7 @@ impl Reader {
 
 impl From<DefaultOptions> for Reader {
     fn from(value: DefaultOptions) -> Self {
-        Reader { options: value }
+        Reader { _options: value }
     }
 }
 
