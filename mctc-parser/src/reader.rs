@@ -164,7 +164,7 @@ fn header(mut rdr: impl Read) -> PResult<HeaderOwned> {
     let flags = rdr.read_u16()?.into();
     let codec_entries = rdr.read_u16()?;
 
-    let mut codec_table = HashMap::new();
+    let mut codec_table = HashMap::with_capacity(codec_entries as usize);
     for _ in 0..codec_entries {
         let length = verify_range(rdr.read_u8()?, 6..=66)?; // TODO: Allow longer strings? Currently 4-64 chars.
         let codec_id = rdr.read_u16()?;
@@ -173,6 +173,9 @@ fn header(mut rdr: impl Read) -> PResult<HeaderOwned> {
             .map(String::from_utf8)??;
         rdr.read_null()?;
 
+        if codec_table.contains_key(&codec_id) {
+            return Err(PError::DuplicateCodec(codec_id));
+        }
         codec_table.insert(codec_id, CodecEntry { name });
     }
 

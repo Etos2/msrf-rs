@@ -27,7 +27,8 @@ pub enum PError {
     InvalidString(StringEncoding),
     MismatchBytes { found: Vec<u8>, expected: Vec<u8> },
     OutsideRange { found: u64, range: Range<u64> },
-    NoCodec(u8),
+    NoCodec(u16),
+    DuplicateCodec(u16),
 }
 
 impl PError {
@@ -65,6 +66,7 @@ impl Display for PError {
                 range.start, range.end
             ),
             PError::NoCodec(id) => write!(f, "codec with id \'{id}\' does not exist"),
+            PError::DuplicateCodec(id) => write!(f, "codec with id \'{id}\' already exists"),
         }
     }
 }
