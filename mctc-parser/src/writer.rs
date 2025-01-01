@@ -2,8 +2,8 @@ use std::io::Write;
 
 use crate::{
     data::{Header, Record},
-    error::PResult,
-    CODEC_ID_EOS, MAGIC_BYTES,
+    error::{PError, PResult},
+    CODEC_ID_EOS, CODEC_NAME_BOUNDS, MAGIC_BYTES,
 };
 
 pub fn parse_header(mut wtr: impl Write, header: Header) -> PResult<()> {
@@ -53,11 +53,15 @@ fn write_header(mut wtr: impl Write, header: Header) -> PResult<()> {
     let mut keys: Vec<_> = header.codec_table.iter().collect();
     keys.sort_by_key(|(k, _)| *k);
     for (k, v) in keys {
-        let len = 2 + v.name.len();
-        wtr.write_u8(len as u8)?;
-        wtr.write_u16(*k)?;
-        wtr.write_all(v.name.as_bytes())?;
-        wtr.write_null()?;
+        if CODEC_NAME_BOUNDS.contains(&(v.name.len() as u64)) {
+            let len = 2 + v.name.len();
+            wtr.write_u8(len as u8)?;
+            wtr.write_u16(*k)?;
+            wtr.write_all(v.name.as_bytes())?;
+            wtr.write_null()?;
+        } else {
+            return Err(PError::new_range(v.name.len() as u64, CODEC_NAME_BOUNDS));
+        }
     }
 
     Ok(())

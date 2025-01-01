@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 pub mod data;
 pub mod error;
 pub mod reader;
@@ -5,6 +7,7 @@ pub mod writer;
 
 const MAGIC_BYTES: [u8; 4] = *b"MCTC";
 const CODEC_ID_EOS: u16 = 0xFFFF;
+const CODEC_NAME_BOUNDS: RangeInclusive<u64> = 4..=64;
 
 // TODO: Impl options
 pub struct DefaultOptions {}
