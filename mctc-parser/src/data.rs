@@ -200,7 +200,7 @@ impl RecordOwned {
         self.val.as_deref()
     }
 
-    pub fn borrow<'a>(&'a self) -> Record<'a> {
+    pub fn as_ref<'a>(&'a self) -> Record<'a> {
         Record {
             codec_id: self.codec_id,
             type_id: self.type_id,

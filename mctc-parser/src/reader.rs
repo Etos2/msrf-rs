@@ -91,18 +91,87 @@ pub fn parse_record(mut rdr: impl Read) -> PResult<RecordOwned> {
     record(&mut rdr)
 }
 
+trait ReadExt {
+    fn read_null(&mut self) -> PResult<()>;
+    fn read_u8(&mut self) -> PResult<u8>;
+    fn read_u16(&mut self) -> PResult<u16>;
+    fn read_u32(&mut self) -> PResult<u32>;
+    fn read_vec(&mut self, bytes: usize) -> PResult<Vec<u8>>;
+    fn read_equals(&mut self, comp: &[u8]) -> PResult<()>;
+}
+
+#[inline]
+fn read_array<const N: usize>(mut rdr: impl Read) -> PResult<[u8; N]> {
+    let mut buf = [0u8; N];
+    rdr.read_exact(&mut buf)?;
+    Ok(buf)
+}
+
+impl<R: Read> ReadExt for R {
+    #[inline]
+    fn read_null(&mut self) -> PResult<()> {
+        let data = read_array::<1>(self)?[0];
+        if data == 0x00 {
+            Ok(())
+        } else {
+            Err(PError::MismatchBytes {
+                found: vec![data; 1],
+                expected: vec![0x00; 1],
+            })
+        }
+    }
+
+    #[inline]
+    fn read_u8(&mut self) -> PResult<u8> {
+        Ok(read_array::<1>(self)?[0])
+    }
+
+    #[inline]
+    fn read_u16(&mut self) -> PResult<u16> {
+        Ok(u16::from_le_bytes(read_array(self)?))
+    }
+
+    #[inline]
+    fn read_u32(&mut self) -> PResult<u32> {
+        Ok(u32::from_le_bytes(read_array(self)?))
+    }
+
+    #[inline]
+    fn read_vec(&mut self, bytes: usize) -> PResult<Vec<u8>> {
+        let mut buf = vec![0; bytes];
+        self.read_exact(&mut buf)?;
+        Ok(buf)
+    }
+
+    #[inline]
+    fn read_equals(&mut self, expect: &[u8]) -> PResult<()> {
+        let mut buf = vec![0; expect.len()];
+        self.read_exact(&mut buf)?;
+        if buf != *expect {
+            Err(PError::MismatchBytes {
+                found: buf.to_vec(),
+                expected: expect.to_vec(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
 fn header(mut rdr: impl Read) -> PResult<HeaderOwned> {
-    read_assert(&mut rdr, MAGIC_BYTES)?;
-    let version = read_u16(&mut rdr)?;
-    let flags = read_u16(&mut rdr)?.into();
-    let codec_entries = read_u16(&mut rdr)?;
+    rdr.read_equals(&MAGIC_BYTES)?;
+    let version = rdr.read_u16()?;
+    let flags = rdr.read_u16()?.into();
+    let codec_entries = rdr.read_u16()?;
 
     let mut codec_table = HashMap::new();
     for _ in 0..codec_entries {
-        let length = verify_range(read_u8(&mut rdr)?, 6..=66)?; // TODO: Allow longer strings? Currently 4-64 chars.
-        let codec_id = read_u16(&mut rdr)?;
-        let name = String::from_utf8(read_vec(&mut rdr, (length - 2) as usize)?)?;
-        read_null(&mut rdr)?;
+        let length = verify_range(rdr.read_u8()?, 6..=66)?; // TODO: Allow longer strings? Currently 4-64 chars.
+        let codec_id = rdr.read_u16()?;
+        let name = rdr
+            .read_vec((length - 2) as usize)
+            .map(String::from_utf8)??;
+        rdr.read_null()?;
 
         codec_table.insert(codec_id, CodecEntry { name });
     }
@@ -115,15 +184,15 @@ fn header(mut rdr: impl Read) -> PResult<HeaderOwned> {
 }
 
 fn record(mut rdr: impl Read) -> PResult<RecordOwned> {
-    match read_u16(&mut rdr)? {
+    match rdr.read_u16()? {
         CODEC_ID_EOS => Ok(RecordOwned::from_eos()),
         codec_id => {
-            let type_id = read_u16(&mut rdr)?;
-            let length = read_u32(&mut rdr)?;
+            let type_id = rdr.read_u16()?;
+            let length = rdr.read_u32()?;
 
             let val = if length != 0 {
-                let val = read_vec(&mut rdr, length as usize)?.into();
-                read_null(&mut rdr)?;
+                let val = rdr.read_vec(length as usize)?.into();
+                rdr.read_null()?;
                 Some(val)
             } else {
                 None
@@ -139,60 +208,6 @@ fn record(mut rdr: impl Read) -> PResult<RecordOwned> {
 }
 
 #[inline]
-fn read<const N: usize>(mut rdr: impl Read) -> PResult<[u8; N]> {
-    let mut buf = [0u8; N];
-    rdr.read_exact(&mut buf)?;
-    Ok(buf)
-}
-
-#[inline]
-fn read_u8(mut rdr: impl Read) -> PResult<u8> {
-    Ok(read::<1>(&mut rdr)?[0])
-}
-
-#[inline]
-fn read_u16(mut rdr: impl Read) -> PResult<u16> {
-    Ok(u16::from_le_bytes(read(&mut rdr)?))
-}
-
-#[inline]
-fn read_u32(mut rdr: impl Read) -> PResult<u32> {
-    Ok(u32::from_le_bytes(read(&mut rdr)?))
-}
-
-#[inline]
-fn read_null(mut rdr: impl Read) -> PResult<()> {
-    let data = read::<1>(&mut rdr)?[0];
-    if data == 0x00 {
-        Ok(())
-    } else {
-        Err(PError::MismatchBytes {
-            found: vec![data; 1],
-            expected: vec![0x00; 1],
-        })
-    }
-}
-
-#[inline]
-fn read_vec(mut rdr: impl Read, bytes: usize) -> PResult<Vec<u8>> {
-    let mut buf = vec![0; bytes];
-    rdr.read_exact(&mut buf)?;
-    Ok(buf)
-}
-
-#[inline]
-fn read_assert<const N: usize>(mut rdr: impl Read, expected: [u8; N]) -> PResult<()> {
-    let data = read(&mut rdr)?;
-    if data != expected {
-        Err(PError::MismatchBytes {
-            found: data.to_vec(),
-            expected: expected.to_vec(),
-        })
-    } else {
-        Ok(())
-    }
-}
-
 fn verify_range<T>(data: T, range: impl RangeBounds<T>) -> PResult<T>
 where
     T: PartialOrd + Into<u64> + Copy,
@@ -335,7 +350,7 @@ mod test {
         assert_eq!(
             record,
             RecordOwned {
-                codec_id: 65535,
+                codec_id: CODEC_ID_EOS,
                 type_id: 0,
                 val: None,
             }
