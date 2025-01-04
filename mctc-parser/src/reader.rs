@@ -95,7 +95,7 @@ trait ReadExt {
     fn read_null(&mut self) -> PResult<()>;
     fn read_u8(&mut self) -> PResult<u8>;
     fn read_u16(&mut self) -> PResult<u16>;
-    fn read_u32(&mut self) -> PResult<u32>;
+    fn read_pv(&mut self) -> PResult<u64>;
     fn read_vec(&mut self, bytes: usize) -> PResult<Vec<u8>>;
     fn read_equals(&mut self, comp: &[u8]) -> PResult<()>;
 }
@@ -132,8 +132,26 @@ impl<R: Read> ReadExt for R {
     }
 
     #[inline]
-    fn read_u32(&mut self) -> PResult<u32> {
-        Ok(u32::from_le_bytes(read_array(self)?))
+    fn read_pv(&mut self) -> PResult<u64> {
+        let tag = self.read_u8()?;
+        let len = tag.trailing_zeros() as usize;
+        let mut data = [0; 8];
+
+        Ok(
+            // Catch single byte varint
+            if len == 0 {
+                (tag >> 1) as u64
+            // Catch tag w/data (0bXXXXXX10...0bX100000)
+            } else if len < 7 {
+                let remainder = tag >> (len + 1); // Remove bit then shift
+                self.read_exact(&mut data[..len])?;
+                (u64::from_le_bytes(data) << (7 - len)) + remainder as u64
+            // Catch tag w/o data (0b1000000 + 0b00000000)
+            } else {
+                self.read_exact(&mut data[..len])?;
+                u64::from_le_bytes(data)
+            },
+        )
     }
 
     #[inline]
@@ -187,11 +205,11 @@ fn header(mut rdr: impl Read) -> PResult<HeaderOwned> {
 }
 
 fn record(mut rdr: impl Read) -> PResult<RecordOwned> {
-    match rdr.read_u16()? {
+    match rdr.read_pv()? {
         CODEC_ID_EOS => Ok(RecordOwned::from_eos()),
         codec_id => {
-            let type_id = rdr.read_u16()?;
-            let length = rdr.read_u32()?;
+            let type_id = rdr.read_pv()?;
+            let length = rdr.read_pv()?;
 
             let val = if length != 0 {
                 let val = rdr.read_vec(length as usize)?.into();
@@ -287,11 +305,11 @@ mod test {
     #[test]
     fn test_record() {
         let mut input = Vec::new();
-        input.extend_from_slice(&[0x12, 0x00]); //              CodecID
-        input.extend_from_slice(&[0x01, 0x00]); //              TypeID
-        input.extend_from_slice(&[0xFF, 0x00, 0x00, 0x00]); //  Length
-        input.extend_from_slice(&vec![0; 255]); //              Value
-        input.extend_from_slice(&[0x00]); //                    Guard
+        input.extend_from_slice(&[0x25]); //        CodecID
+        input.extend_from_slice(&[0x03]); //        TypeID
+        input.extend_from_slice(&[0xFE, 0x03]); //  Length
+        input.extend_from_slice(&vec![0; 255]); //  Value
+        input.extend_from_slice(&[0x00]); //        Guard
 
         let mut rdr = Cursor::new(&input);
         let result = record(&mut rdr);
@@ -302,7 +320,7 @@ mod test {
             RecordOwned {
                 codec_id: 18,
                 type_id: 1,
-                val: Some(vec![0; 0xFF].into()),
+                val: Some(vec![0; 255].into()),
             }
         );
 
@@ -316,9 +334,9 @@ mod test {
     #[test]
     fn test_record_empty() {
         let mut input = Vec::new();
-        input.extend_from_slice(&[0x12, 0x00]); //              CodecID
-        input.extend_from_slice(&[0x01, 0x00]); //              TypeID
-        input.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); //  Length
+        input.extend_from_slice(&[0x25]); // CodecID
+        input.extend_from_slice(&[0x03]); // TypeID
+        input.extend_from_slice(&[0x01]); // Length
 
         let mut rdr = Cursor::new(&input);
         let result = record(&mut rdr);
@@ -342,7 +360,8 @@ mod test {
 
     #[test]
     fn test_record_eos() {
-        let input = vec![0xFF, 0xFF]; // CodecID
+        // CodecID
+        let input = vec![0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]; 
         let mut rdr = Cursor::new(&input);
 
         let result = record(&mut rdr);
@@ -364,5 +383,29 @@ mod test {
             "expected eof ({} bytes remaining)",
             input.len() - rdr.position() as usize
         );
+    }
+
+    #[test]
+    fn test_pv() {
+        // Full (9 byte)
+        let mut rdr = Cursor::new([0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let data = rdr.read_pv().unwrap();
+        assert_eq!(data, u64::MAX);
+        // Empty (1 byte)
+        let mut rdr = Cursor::new([0x01]);
+        let data = rdr.read_pv().unwrap();
+        assert_eq!(data, 0x00);
+        // Partial (1 byte)
+        let mut rdr = Cursor::new([0x25]);
+        let data = rdr.read_pv().unwrap();
+        assert_eq!(data, 18);
+        // Partial (2 byte)
+        let mut rdr = Cursor::new([(0xFF << 2) | 0x02, 0x03]);
+        let data = rdr.read_pv().unwrap();
+        assert_eq!(data, 0xFF);
+        // Partial (8 byte)
+        let mut rdr = Cursor::new([0x80, 0xFA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        let data = rdr.read_pv().unwrap();
+        assert_eq!(data, 0xFFFFFFFFFFFFFA);
     }
 }

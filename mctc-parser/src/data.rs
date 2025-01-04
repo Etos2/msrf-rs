@@ -117,13 +117,13 @@ impl HeaderOwned {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Record<'a> {
-    pub(crate) codec_id: u16,
-    pub(crate) type_id: u16,
+    pub(crate) codec_id: u64,
+    pub(crate) type_id: u64,
     pub(crate) val: Option<&'a [u8]>,
 }
 
 impl<'a> Record<'a> {
-    pub fn new(codec_id: u16, type_id: u16, val: &'a [u8]) -> Record<'a> {
+    pub fn new(codec_id: u64, type_id: u64, val: &'a [u8]) -> Record<'a> {
         Record {
             codec_id,
             type_id,
@@ -131,11 +131,11 @@ impl<'a> Record<'a> {
         }
     }
 
-    pub fn codec_id(&self) -> u16 {
+    pub fn codec_id(&self) -> u64 {
         self.codec_id
     }
 
-    pub fn type_id(&self) -> u16 {
+    pub fn type_id(&self) -> u64 {
         self.type_id
     }
 
@@ -154,13 +154,13 @@ impl<'a> Record<'a> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordOwned {
-    pub(crate) codec_id: u16,
-    pub(crate) type_id: u16,
+    pub(crate) codec_id: u64,
+    pub(crate) type_id: u64,
     pub(crate) val: Option<Box<[u8]>>,
 }
 
 impl RecordOwned {
-    pub fn from_slice(codec_id: u16, type_id: u16, val: &[u8]) -> RecordOwned {
+    pub fn from_slice(codec_id: u64, type_id: u64, val: &[u8]) -> RecordOwned {
         RecordOwned {
             codec_id,
             type_id,
@@ -168,7 +168,7 @@ impl RecordOwned {
         }
     }
 
-    pub fn from_box(codec_id: u16, type_id: u16, val: Box<[u8]>) -> RecordOwned {
+    pub fn from_box(codec_id: u64, type_id: u64, val: Box<[u8]>) -> RecordOwned {
         RecordOwned {
             codec_id,
             type_id,
@@ -188,11 +188,11 @@ impl RecordOwned {
         self.codec_id == CODEC_ID_EOS
     }
 
-    pub fn codec_id(&self) -> u16 {
+    pub fn codec_id(&self) -> u64 {
         self.codec_id
     }
 
-    pub fn type_id(&self) -> u16 {
+    pub fn type_id(&self) -> u64 {
         self.type_id
     }
 

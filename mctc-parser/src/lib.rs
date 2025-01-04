@@ -6,7 +6,7 @@ pub mod reader;
 pub mod writer;
 
 const MAGIC_BYTES: [u8; 4] = *b"MCTC";
-const CODEC_ID_EOS: u16 = 0xFFFF;
+const CODEC_ID_EOS: u64 = u64::MAX;
 const CODEC_NAME_BOUNDS: RangeInclusive<u64> = 4..=64;
 
 // TODO: Impl options

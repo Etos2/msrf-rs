@@ -19,6 +19,7 @@ trait WriteExt {
     fn write_u8(&mut self, data: u8) -> PResult<()>;
     fn write_u16(&mut self, data: u16) -> PResult<()>;
     fn write_u32(&mut self, data: u32) -> PResult<()>;
+    fn write_pv(&mut self, data: u64) -> PResult<()>;
 }
 
 impl<W: Write> WriteExt for W {
@@ -40,6 +41,34 @@ impl<W: Write> WriteExt for W {
     #[inline]
     fn write_u32(&mut self, data: u32) -> PResult<()> {
         Ok(self.write_all(&data.to_le_bytes())?)
+    }
+
+    #[inline]
+    fn write_pv(&mut self, data: u64) -> PResult<()> {
+        let mut buf = [0u8; 9];
+        let zeros = data.leading_zeros();
+
+        // Catch empty u64
+        if zeros == 64 {
+            self.write_all(&[0x01])?;
+        // Catch full u64
+        } else if zeros == 0 {
+            buf[1..].copy_from_slice(&data.to_le_bytes());
+            self.write_all(&buf)?;
+        // Catch var u64
+        } else {
+            let offset = 8 - ((zeros - 1) / 7) as usize;
+            let data = data << offset + 1;
+            buf[..=offset].copy_from_slice(&data.to_le_bytes()[..=offset]);
+            buf[0] |= if offset >= u8::BITS as usize {
+                0
+            } else {
+                0x01 << offset
+            };
+            self.write_all(&buf[..=offset])?;
+        }
+
+        Ok(())
     }
 }
 
@@ -68,11 +97,11 @@ fn write_header(mut wtr: impl Write, header: Header) -> PResult<()> {
 }
 
 fn write_record(mut wtr: impl Write, record: Record) -> PResult<()> {
-    wtr.write_u16(record.codec_id)?;
+    wtr.write_pv(record.codec_id)?;
     if record.codec_id != CODEC_ID_EOS {
-        wtr.write_u16(record.type_id)?;
+        wtr.write_pv(record.type_id)?;
         if let Some(val) = record.val {
-            wtr.write_u32(val.len() as u32)?;
+            wtr.write_pv(val.len() as u64)?;
             wtr.write_all(val)?;
             wtr.write_null()?;
         } else {
@@ -85,7 +114,7 @@ fn write_record(mut wtr: impl Write, record: Record) -> PResult<()> {
 
 #[cfg(test)]
 mod test {
-    use std::{collections::HashMap, io::Cursor};
+    use std::{collections::HashMap, io::Cursor, u64};
 
     use crate::data::{CodecEntry, HeaderFlags, HeaderOwned, RecordOwned};
 
@@ -136,7 +165,7 @@ mod test {
 
     #[test]
     fn test_record() {
-        let mut buf = [0u8; 264];
+        let mut buf = [0u8; 260];
         let mut wtr = Cursor::new(buf.as_mut_slice());
         let record_data = RecordOwned {
             codec_id: 18,
@@ -145,19 +174,19 @@ mod test {
         };
 
         let mut output = Vec::new();
-        output.extend_from_slice(&[0x12, 0x00]); //              CodecID
-        output.extend_from_slice(&[0x01, 0x00]); //              TypeID
-        output.extend_from_slice(&[0xFF, 0x00, 0x00, 0x00]); //  Length
-        output.extend_from_slice(&vec![0; 255]); //              Value
-        output.extend_from_slice(&[0x00]); //                    Guard
+        output.extend_from_slice(&[0x25]); //        CodecID
+        output.extend_from_slice(&[0x03]); //        TypeID
+        output.extend_from_slice(&[0xFE, 0x03]); //  Length
+        output.extend_from_slice(&vec![0; 255]); //  Value
+        output.extend_from_slice(&[0x00]); //        Guard
 
-        assert!(write_record(&mut wtr, record_data.as_ref()).is_ok());
+        write_record(&mut wtr, record_data.as_ref()).unwrap();
         assert_eq!(wtr.into_inner(), &output);
     }
 
     #[test]
     fn test_record_empty() {
-        let mut buf = [0u8; 8];
+        let mut buf = [0u8; 3];
         let mut wtr = Cursor::new(buf.as_mut_slice());
         let record_data = RecordOwned {
             codec_id: 18,
@@ -166,17 +195,17 @@ mod test {
         };
 
         let mut output = Vec::new();
-        output.extend_from_slice(&[0x12, 0x00]); //              CodecID
-        output.extend_from_slice(&[0x01, 0x00]); //              TypeID
-        output.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); //  Length
+        output.extend_from_slice(&[0x25]); // CodecID
+        output.extend_from_slice(&[0x03]); // TypeID
+        output.extend_from_slice(&[0x01]); // Length
 
-        assert!(write_record(&mut wtr, record_data.as_ref()).is_ok());
+        write_record(&mut wtr, record_data.as_ref()).unwrap();
         assert_eq!(wtr.into_inner(), &output);
     }
 
     #[test]
     fn test_record_eos() {
-        let mut buf = [0u8; 2];
+        let mut buf = [0u8; 9];
         let mut wtr = Cursor::new(buf.as_mut_slice());
         let record_data = RecordOwned {
             codec_id: CODEC_ID_EOS,
@@ -184,9 +213,49 @@ mod test {
             val: None,
         };
 
-        let output = vec![0xFF, 0xFF]; // CodecID
+        // CodecID
+        let output = vec![0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
 
-        assert!(write_record(&mut wtr, record_data.as_ref()).is_ok());
+        write_record(&mut wtr, record_data.as_ref()).unwrap();
         assert_eq!(wtr.into_inner(), &output);
+    }
+
+    #[test]
+    fn test_pv() {
+        // Empty (1 byte)
+        let mut wtr = Cursor::new(Vec::new());
+        let input = 0x00;
+        wtr.write_pv(input).unwrap();
+        assert_eq!(wtr.into_inner(), [0x01]);
+
+        // Full (9 byte)
+        let mut wtr = Cursor::new(Vec::new());
+        let input = u64::MAX;
+        wtr.write_pv(input).unwrap();
+        assert_eq!(
+            wtr.into_inner(),
+            [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+        );
+
+        // Partial (1 byte)
+        let mut wtr = Cursor::new(Vec::new());
+        let input = 0x21;
+        wtr.write_pv(input).unwrap();
+        assert_eq!(wtr.into_inner(), [(0x21 << 1) | 0x01,]);
+
+        // Partial (2 byte)
+        let mut wtr = Cursor::new(Vec::new());
+        let input = 0xFF;
+        wtr.write_pv(input).unwrap();
+        assert_eq!(wtr.into_inner(), [(0xFF << 2) | 0x02, 0x03,]);
+
+        // Partial (8 byte)
+        let mut wtr = Cursor::new(Vec::new());
+        let input = 0xFFFFFFFFFFFFFA;
+        wtr.write_pv(input).unwrap();
+        assert_eq!(
+            wtr.into_inner(),
+            [0x80, 0xFA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+        );
     }
 }

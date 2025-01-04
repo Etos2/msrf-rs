@@ -29,6 +29,7 @@ pub enum PError {
     OutsideRange { found: u64, range: Range<u64> },
     NoCodec(u16),
     DuplicateCodec(u16),
+    InvalidGVE,
 }
 
 impl PError {
@@ -67,6 +68,7 @@ impl Display for PError {
             ),
             PError::NoCodec(id) => write!(f, "codec with id \'{id}\' does not exist"),
             PError::DuplicateCodec(id) => write!(f, "codec with id \'{id}\' already exists"),
+            PError::InvalidGVE => write!(f, "invalid gve (maximum 8 bytes)"),
         }
     }
 }
