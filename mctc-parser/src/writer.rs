@@ -14,20 +14,6 @@ pub fn parse_record(mut wtr: impl Write, record: Record) -> PResult<()> {
     write_record(&mut wtr, record)
 }
 
-fn pv_len(data: u64) -> usize {
-    let mut zeros = data.leading_zeros() as usize;
-
-    // Catch empty u64
-    if zeros == 64 {
-        zeros -= 1;
-    // Catch full u64
-    } else if zeros == 0 {
-        zeros += 1;
-    }
-
-    9 - (zeros - 1) / 7
-}
-
 trait WriteExt {
     fn write_null(&mut self) -> PResult<()>;
     fn write_u8(&mut self, data: u8) -> PResult<()>;
@@ -250,7 +236,6 @@ mod test {
         wtr.write_pv(input).unwrap();
         let result = wtr.into_inner();
         assert_eq!(result, output);
-        assert_eq!(pv_len(input), output.len());
 
         // Full (9 byte)
         let mut wtr = Cursor::new(Vec::new());
@@ -259,7 +244,6 @@ mod test {
         wtr.write_pv(input).unwrap();
         let result = wtr.into_inner();
         assert_eq!(result, output);
-        assert_eq!(pv_len(input), output.len());
 
         // Partial (1 byte)
         let mut wtr = Cursor::new(Vec::new());
@@ -268,7 +252,6 @@ mod test {
         wtr.write_pv(input).unwrap();
         let result = wtr.into_inner();
         assert_eq!(result, output);
-        assert_eq!(pv_len(input), output.len());
 
         // Partial (2 byte)
         let mut wtr = Cursor::new(Vec::new());
@@ -277,7 +260,6 @@ mod test {
         wtr.write_pv(input).unwrap();
         let result = wtr.into_inner();
         assert_eq!(result, output);
-        assert_eq!(pv_len(input), output.len());
 
         // Partial (8 byte)
         let mut wtr = Cursor::new(Vec::new());
@@ -286,6 +268,5 @@ mod test {
         wtr.write_pv(input).unwrap();
         let result = wtr.into_inner();
         assert_eq!(result, output);
-        assert_eq!(pv_len(input), output.len());
     }
 }

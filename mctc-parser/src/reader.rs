@@ -3,7 +3,7 @@ use crate::{
     error::{PError, PResult},
     DefaultOptions, CODEC_ID_EOS, MAGIC_BYTES,
 };
-use std::{collections::HashMap, io::Read, ops::RangeBounds};
+use std::{collections::HashMap, io::Read};
 
 pub struct Reader {
     _options: DefaultOptions,
