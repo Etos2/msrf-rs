@@ -95,6 +95,7 @@ trait ReadExt {
     fn read_null(&mut self) -> PResult<()>;
     fn read_u8(&mut self) -> PResult<u8>;
     fn read_u16(&mut self) -> PResult<u16>;
+    fn read_u64(&mut self) -> PResult<u64>;
     fn read_pv(&mut self) -> PResult<(u64, usize)>;
     fn read_vec(&mut self, bytes: usize) -> PResult<Vec<u8>>;
     fn read_equals(&mut self, comp: &[u8]) -> PResult<()>;
@@ -129,6 +130,11 @@ impl<R: Read> ReadExt for R {
     #[inline]
     fn read_u16(&mut self) -> PResult<u16> {
         Ok(u16::from_le_bytes(read_array(self)?))
+    }
+
+    #[inline]
+    fn read_u64(&mut self) -> PResult<u64> {
+        Ok(u64::from_le_bytes(read_array(self)?))
     }
 
     #[inline]
@@ -187,22 +193,25 @@ fn header(mut rdr: impl Read) -> PResult<HeaderOwned> {
 
     let mut codec_table = HashMap::with_capacity(codec_entries as usize);
     for _ in 0..codec_entries {
-        let length = rdr.read_u8()?; // 1-9 byte varint + 4-64 chars.
-        let (codec_id, pv_len) = rdr.read_pv()?;
-        let name = rdr
-            .read_vec(length as usize - pv_len)
-            .map(String::from_utf8)??;
+        let length = rdr.read_u8()?; // 8 byte id + 4-64 chars.
+        if !(9..).contains(&length) {
+            return Err(PError::new_range(length as u64, 9..));
+        }
 
+        let codec_id = rdr.read_u64()?;
+        if codec_table.contains_key(&codec_id) {
+            return Err(PError::DuplicateCodec(codec_id));
+        }
+
+        let name = rdr
+            .read_vec(length as usize - 8)
+            .map(String::from_utf8)??;
         // TODO: Allow longer strings?
         if !(4..=64).contains(&name.len()) {
             return Err(PError::new_range(name.len() as u64, 4..=64));
         }
 
         rdr.read_null()?;
-
-        if codec_table.contains_key(&codec_id) {
-            return Err(PError::DuplicateCodec(codec_id));
-        }
         codec_table.insert(codec_id, CodecEntry { name });
     }
 
@@ -237,18 +246,6 @@ fn record(mut rdr: impl Read) -> PResult<RecordOwned> {
     }
 }
 
-#[inline]
-fn verify_range<T>(data: T, range: impl RangeBounds<T>) -> PResult<T>
-where
-    T: PartialOrd + Into<u64> + Copy,
-{
-    if range.contains(&data) {
-        Ok(data)
-    } else {
-        Err(PError::new_range(data, range))
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::{
@@ -268,13 +265,13 @@ mod test {
         input.extend_from_slice(&[0x00, 0x00]); //      Flags (Unused)
         input.extend_from_slice(&[0x02, 0x00]); //      Codec Entries
 
-        input.extend_from_slice(&[0x05]); //            Length
-        input.extend_from_slice(&[0x25]); //            CodecID
+        input.extend_from_slice(&[0x0C]); //            Length
+        input.extend_from_slice(&[0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // CodecID
         input.extend_from_slice(b"TEST"); //            Name
         input.extend_from_slice(&[0x00]); //            Guard (null byte)
 
-        input.extend_from_slice(&[0x42]); //            Length
-        input.extend_from_slice(&[0x16, 0x04]); //      CodecID
+        input.extend_from_slice(&[0x48]); //            Length
+        input.extend_from_slice(&[0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // CodecID
         input.extend_from_slice(&vec![b'A'; 64]); //    Name
         input.extend_from_slice(&[0x00]); //            Guard (null byte)
 
