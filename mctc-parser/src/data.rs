@@ -3,17 +3,17 @@ use std::collections::HashMap;
 
 use crate::CODEC_ID_EOS;
 
-pub type CodecTable = HashMap<u16, CodecEntry>;
+pub type CodecTable = HashMap<u64, CodecEntry>;
 
 // TODO: Impl CodecOwned vs CodecRef?
 #[derive(Debug, Clone, PartialEq)]
 pub struct Codec {
-    pub(crate) id: u16,
+    pub(crate) id: u64,
     pub(crate) entry: CodecEntry,
 }
 
-impl From<(u16, CodecEntry)> for Codec {
-    fn from(val: (u16, CodecEntry)) -> Self {
+impl From<(u64, CodecEntry)> for Codec {
+    fn from(val: (u64, CodecEntry)) -> Self {
         Codec {
             id: val.0,
             entry: val.1,
@@ -55,7 +55,7 @@ pub struct Header<'a> {
 }
 
 impl<'a> Header<'a> {
-    pub fn get_codec(&self, index: u16) -> Option<Codec> {
+    pub fn get_codec(&self, index: u64) -> Option<Codec> {
         Some((index, self.codec_table.get(&index)?.clone()).into())
     }
 
@@ -80,7 +80,7 @@ impl HeaderOwned {
         self.codec_table.insert(val.id, val.into());
     }
 
-    pub fn get_codec(&self, index: u16) -> Option<Codec> {
+    pub fn get_codec(&self, index: u64) -> Option<Codec> {
         self.codec_table
             .get(&index)
             .map(|entry| (index, entry.clone()).into())

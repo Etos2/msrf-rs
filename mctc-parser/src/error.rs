@@ -28,7 +28,7 @@ pub enum PError {
     MismatchBytes { found: Vec<u8>, expected: Vec<u8> },
     OutsideRange { found: u64, range: Range<u64> },
     NoCodec(u16),
-    DuplicateCodec(u16),
+    DuplicateCodec(u64),
     InvalidGVE,
 }
 

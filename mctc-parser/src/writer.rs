@@ -14,6 +14,20 @@ pub fn parse_record(mut wtr: impl Write, record: Record) -> PResult<()> {
     write_record(&mut wtr, record)
 }
 
+fn pv_len(data: u64) -> usize {
+    let mut zeros = data.leading_zeros() as usize;
+
+    // Catch empty u64
+    if zeros == 64 {
+        zeros -= 1;
+    // Catch full u64
+    } else if zeros == 0 {
+        zeros += 1;
+    }
+
+    9 - (zeros - 1) / 7
+}
+
 trait WriteExt {
     fn write_null(&mut self) -> PResult<()>;
     fn write_u8(&mut self, data: u8) -> PResult<()>;
@@ -57,15 +71,15 @@ impl<W: Write> WriteExt for W {
             self.write_all(&buf)?;
         // Catch var u64
         } else {
-            let offset = 8 - ((zeros - 1) / 7) as usize;
-            let data = data << offset + 1;
-            buf[..=offset].copy_from_slice(&data.to_le_bytes()[..=offset]);
-            buf[0] |= if offset >= u8::BITS as usize {
+            let bytes = 8 - ((zeros - 1) / 7) as usize;
+            let data = data << bytes + 1;
+            buf[..=bytes].copy_from_slice(&data.to_le_bytes()[..=bytes]);
+            buf[0] |= if bytes >= u8::BITS as usize {
                 0
             } else {
-                0x01 << offset
+                0x01 << bytes
             };
-            self.write_all(&buf[..=offset])?;
+            self.write_all(&buf[..=bytes])?;
         }
 
         Ok(())
@@ -83,9 +97,9 @@ fn write_header(mut wtr: impl Write, header: Header) -> PResult<()> {
     keys.sort_by_key(|(k, _)| *k);
     for (k, v) in keys {
         if CODEC_NAME_BOUNDS.contains(&(v.name.len() as u64)) {
-            let len = 2 + v.name.len();
+            let len = pv_len(*k) + v.name.len();
             wtr.write_u8(len as u8)?;
-            wtr.write_u16(*k)?;
+            wtr.write_pv(*k)?;
             wtr.write_all(v.name.as_bytes())?;
             wtr.write_null()?;
         } else {
@@ -225,37 +239,46 @@ mod test {
         // Empty (1 byte)
         let mut wtr = Cursor::new(Vec::new());
         let input = 0x00;
+        let output = [0x01];
         wtr.write_pv(input).unwrap();
-        assert_eq!(wtr.into_inner(), [0x01]);
+        let result = wtr.into_inner();
+        assert_eq!(result, output);
+        assert_eq!(pv_len(input), output.len());
 
         // Full (9 byte)
         let mut wtr = Cursor::new(Vec::new());
         let input = u64::MAX;
+        let output = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
         wtr.write_pv(input).unwrap();
-        assert_eq!(
-            wtr.into_inner(),
-            [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
-        );
+        let result = wtr.into_inner();
+        assert_eq!(result, output);
+        assert_eq!(pv_len(input), output.len());
 
         // Partial (1 byte)
         let mut wtr = Cursor::new(Vec::new());
         let input = 0x21;
+        let output = [(0x21 << 1) | 0x01,];
         wtr.write_pv(input).unwrap();
-        assert_eq!(wtr.into_inner(), [(0x21 << 1) | 0x01,]);
+        let result = wtr.into_inner();
+        assert_eq!(result, output);
+        assert_eq!(pv_len(input), output.len());
 
         // Partial (2 byte)
         let mut wtr = Cursor::new(Vec::new());
         let input = 0xFF;
+        let output = [(0xFF << 2) | 0x02, 0x03,];
         wtr.write_pv(input).unwrap();
-        assert_eq!(wtr.into_inner(), [(0xFF << 2) | 0x02, 0x03,]);
+        let result = wtr.into_inner();
+        assert_eq!(result, output);
+        assert_eq!(pv_len(input), output.len());
 
         // Partial (8 byte)
         let mut wtr = Cursor::new(Vec::new());
         let input = 0xFFFFFFFFFFFFFA;
+        let output = [0x80, 0xFA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
         wtr.write_pv(input).unwrap();
-        assert_eq!(
-            wtr.into_inner(),
-            [0x80, 0xFA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
-        );
+        let result = wtr.into_inner();
+        assert_eq!(result, output);
+        assert_eq!(pv_len(input), output.len());
     }
 }
