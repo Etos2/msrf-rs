@@ -23,12 +23,14 @@ impl From<(u64, CodecEntry)> for Codec {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodecEntry {
+    pub(crate) version: u16,
     pub(crate) name: String,
 }
 
 impl From<Codec> for CodecEntry {
     fn from(val: Codec) -> Self {
         CodecEntry {
+            version: val.entry.version,
             name: val.entry.name,
         }
     }

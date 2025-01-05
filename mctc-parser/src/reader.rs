@@ -193,9 +193,9 @@ fn header(mut rdr: impl Read) -> PResult<HeaderOwned> {
 
     let mut codec_table = HashMap::with_capacity(codec_entries as usize);
     for _ in 0..codec_entries {
-        let length = rdr.read_u8()?; // 8 byte id + 4-64 chars.
-        if !(9..).contains(&length) {
-            return Err(PError::new_range(length as u64, 9..));
+        let length = rdr.read_u8()?; // 8 byte id + 2 byte version + 4-64 chars.
+        if !(11..).contains(&length) {
+            return Err(PError::new_range(length as u64, 11..));
         }
 
         let codec_id = rdr.read_u64()?;
@@ -203,8 +203,9 @@ fn header(mut rdr: impl Read) -> PResult<HeaderOwned> {
             return Err(PError::DuplicateCodec(codec_id));
         }
 
+        let version = rdr.read_u16()?;
         let name = rdr
-            .read_vec(length as usize - 8)
+            .read_vec(length as usize - 10)
             .map(String::from_utf8)??;
         // TODO: Allow longer strings?
         if !(4..=64).contains(&name.len()) {
@@ -212,7 +213,7 @@ fn header(mut rdr: impl Read) -> PResult<HeaderOwned> {
         }
 
         rdr.read_null()?;
-        codec_table.insert(codec_id, CodecEntry { name });
+        codec_table.insert(codec_id, CodecEntry { name, version });
     }
 
     Ok(HeaderOwned {
@@ -265,13 +266,15 @@ mod test {
         input.extend_from_slice(&[0x00, 0x00]); //      Flags (Unused)
         input.extend_from_slice(&[0x02, 0x00]); //      Codec Entries
 
-        input.extend_from_slice(&[0x0C]); //            Length
+        input.extend_from_slice(&[0x0E]); //            Length
         input.extend_from_slice(&[0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // CodecID
+        input.extend_from_slice(&[0x00, 0x00]); //      Version
         input.extend_from_slice(b"TEST"); //            Name
         input.extend_from_slice(&[0x00]); //            Guard (null byte)
 
-        input.extend_from_slice(&[0x48]); //            Length
+        input.extend_from_slice(&[0x4A]); //            Length
         input.extend_from_slice(&[0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // CodecID
+        input.extend_from_slice(&[0x00, 0x01]); //      Version
         input.extend_from_slice(&vec![b'A'; 64]); //    Name
         input.extend_from_slice(&[0x00]); //            Guard (null byte)
 
@@ -288,13 +291,15 @@ mod test {
                     (
                         18,
                         CodecEntry {
-                            name: String::from("TEST")
+                            version: 0,
+                            name: String::from("TEST"),
                         }
                     ),
                     (
                         261,
                         CodecEntry {
-                            name: String::from_utf8(vec![b'A'; 64]).unwrap()
+                            version: 256,
+                            name: String::from_utf8(vec![b'A'; 64]).unwrap(),
                         }
                     ),
                 ])

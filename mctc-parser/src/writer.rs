@@ -18,7 +18,6 @@ trait WriteExt {
     fn write_null(&mut self) -> PResult<()>;
     fn write_u8(&mut self, data: u8) -> PResult<()>;
     fn write_u16(&mut self, data: u16) -> PResult<()>;
-    fn write_u32(&mut self, data: u32) -> PResult<()>;
     fn write_u64(&mut self, data: u64) -> PResult<()>;
     fn write_pv(&mut self, data: u64) -> PResult<()>;
 }
@@ -36,11 +35,6 @@ impl<W: Write> WriteExt for W {
 
     #[inline]
     fn write_u16(&mut self, data: u16) -> PResult<()> {
-        Ok(self.write_all(&data.to_le_bytes())?)
-    }
-
-    #[inline]
-    fn write_u32(&mut self, data: u32) -> PResult<()> {
         Ok(self.write_all(&data.to_le_bytes())?)
     }
 
@@ -92,6 +86,7 @@ fn write_header(mut wtr: impl Write, header: Header) -> PResult<()> {
             let len = v.name.len() + 8;
             wtr.write_u8(len as u8)?;
             wtr.write_u64(*k)?;
+            wtr.write_u16(v.version)?;
             wtr.write_all(v.name.as_bytes())?;
             wtr.write_null()?;
         } else {
@@ -111,7 +106,7 @@ fn write_record(mut wtr: impl Write, record: Record) -> PResult<()> {
             wtr.write_all(val)?;
             wtr.write_null()?;
         } else {
-            wtr.write_u32(0)?;
+            wtr.write_pv(0)?;
         }
     }
 
@@ -128,7 +123,7 @@ mod test {
 
     #[test]
     fn test_header() {
-        let mut buf = [0u8; 98];
+        let mut buf = [0u8; 102];
         let mut wtr = Cursor::new(buf.as_mut_slice());
         let header_data = HeaderOwned {
             version: 0,
@@ -137,12 +132,14 @@ mod test {
                 (
                     18,
                     CodecEntry {
+                        version: 0,
                         name: String::from("TEST"),
                     },
                 ),
                 (
                     261,
                     CodecEntry {
+                        version: 256,
                         name: String::from_utf8(vec![b'A'; 64]).unwrap(),
                     },
                 ),
@@ -157,11 +154,13 @@ mod test {
 
         output.extend_from_slice(&[0x0C]); //            Length
         output.extend_from_slice(&[0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // CodecID
+        output.extend_from_slice(&[0x00, 0x00]); //      Version
         output.extend_from_slice(b"TEST"); //            Name
         output.extend_from_slice(&[0x00]); //            Guard (null byte)
 
         output.extend_from_slice(&[0x48]); //            Length
         output.extend_from_slice(&[0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // CodecID
+        output.extend_from_slice(&[0x00, 0x01]); //      Version
         output.extend_from_slice(&vec![b'A'; 64]); //    Name
         output.extend_from_slice(&[0x00]); //            Guard (null byte)
 
