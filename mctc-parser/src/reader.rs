@@ -1,9 +1,10 @@
 use crate::{
-    data::{CodecEntry, Header, HeaderOwned, RecordOwned},
+    data::{Codec, Header, Record},
     error::{PError, PResult},
-    DefaultOptions, CODEC_ID_EOS, MAGIC_BYTES,
+    util::ReadExt,
+    DefaultOptions, CODEC_ENTRY_LENGTH_BOUNDS, CODEC_ID_EOS, MAGIC_BYTES,
 };
-use std::{collections::HashMap, io::Read};
+use std::io::Read;
 
 pub struct Reader {
     _options: DefaultOptions,
@@ -15,16 +16,6 @@ impl Reader {
             _options: DefaultOptions::default(),
         }
     }
-
-    pub fn records<R: Read>(mut rdr: R) -> PResult<RecordsIter<R>> {
-        let header = parse_header(&mut rdr)?;
-        Ok(RecordsIter {
-            rdr,
-            header,
-            error: None,
-            finished: false,
-        })
-    }
 }
 
 impl From<DefaultOptions> for Reader {
@@ -33,199 +24,56 @@ impl From<DefaultOptions> for Reader {
     }
 }
 
-pub struct RecordsIter<R: Read> {
-    rdr: R,
-    header: HeaderOwned,
-    error: Option<PError>,
-    finished: bool,
-}
-
-impl<R: Read> RecordsIter<R> {
-    pub fn into_error(self) -> Option<PError> {
-        self.error
-    }
-
-    pub fn is_finished(&self) -> bool {
-        self.finished
-    }
-
-    pub fn has_error(&self) -> bool {
-        self.error.is_some()
-    }
-
-    pub fn header(&self) -> Header {
-        self.header.as_ref()
-    }
-}
-
-impl<R: Read> Iterator for RecordsIter<R> {
-    type Item = RecordOwned;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.finished || self.error.is_some() {
-            return None;
-        }
-
-        match parse_record(&mut self.rdr) {
-            Ok(record) => {
-                if !record.is_eos() {
-                    Some(record)
-                } else {
-                    self.finished = true;
-                    None
-                }
-            }
-            Err(e) => {
-                self.error = Some(e);
-                None
-            }
-        }
-    }
-}
-
-pub fn parse_header(mut rdr: impl Read) -> PResult<HeaderOwned> {
+pub fn parse_header(mut rdr: impl Read) -> PResult<Header> {
     header(&mut rdr)
 }
 
-pub fn parse_record(mut rdr: impl Read) -> PResult<RecordOwned> {
+pub fn parse_record(mut rdr: impl Read) -> PResult<Record> {
     record(&mut rdr)
 }
 
-trait ReadExt {
-    fn read_null(&mut self) -> PResult<()>;
-    fn read_u8(&mut self) -> PResult<u8>;
-    fn read_u16(&mut self) -> PResult<u16>;
-    fn read_u64(&mut self) -> PResult<u64>;
-    fn read_pv(&mut self) -> PResult<(u64, usize)>;
-    fn read_vec(&mut self, bytes: usize) -> PResult<Vec<u8>>;
-    fn read_equals(&mut self, comp: &[u8]) -> PResult<()>;
-}
-
-#[inline]
-fn read_array<const N: usize>(mut rdr: impl Read) -> PResult<[u8; N]> {
-    let mut buf = [0u8; N];
-    rdr.read_exact(&mut buf)?;
-    Ok(buf)
-}
-
-impl<R: Read> ReadExt for R {
-    #[inline]
-    fn read_null(&mut self) -> PResult<()> {
-        let data = read_array::<1>(self)?[0];
-        if data == 0x00 {
-            Ok(())
-        } else {
-            Err(PError::MismatchBytes {
-                found: vec![data; 1],
-                expected: vec![0x00; 1],
-            })
-        }
-    }
-
-    #[inline]
-    fn read_u8(&mut self) -> PResult<u8> {
-        Ok(read_array::<1>(self)?[0])
-    }
-
-    #[inline]
-    fn read_u16(&mut self) -> PResult<u16> {
-        Ok(u16::from_le_bytes(read_array(self)?))
-    }
-
-    #[inline]
-    fn read_u64(&mut self) -> PResult<u64> {
-        Ok(u64::from_le_bytes(read_array(self)?))
-    }
-
-    #[inline]
-    fn read_pv(&mut self) -> PResult<(u64, usize)> {
-        let tag = self.read_u8()?;
-        let len = tag.trailing_zeros() as usize;
-        let mut data = [0; 8];
-
-        Ok(
-            // Catch single byte varint
-            if len == 0 {
-                ((tag >> 1) as u64, 1)
-            // Catch tag w/data (0bXXXXXX10...0bX100000)
-            } else if len < 7 {
-                let remainder = tag >> (len + 1); // Remove bit then shift
-                self.read_exact(&mut data[..len])?;
-                (
-                    (u64::from_le_bytes(data) << (7 - len)) + remainder as u64,
-                    len + 1,
-                )
-            // Catch tag w/o data (0b1000000 + 0b00000000)
-            } else {
-                self.read_exact(&mut data[..len])?;
-                (u64::from_le_bytes(data), len + 1)
-            },
-        )
-    }
-
-    #[inline]
-    fn read_vec(&mut self, bytes: usize) -> PResult<Vec<u8>> {
-        let mut buf = vec![0; bytes];
-        self.read_exact(&mut buf)?;
-        Ok(buf)
-    }
-
-    #[inline]
-    fn read_equals(&mut self, expect: &[u8]) -> PResult<()> {
-        let mut buf = vec![0; expect.len()];
-        self.read_exact(&mut buf)?;
-        if buf != *expect {
-            Err(PError::MismatchBytes {
-                found: buf.to_vec(),
-                expected: expect.to_vec(),
-            })
-        } else {
-            Ok(())
-        }
-    }
-}
-
-fn header(mut rdr: impl Read) -> PResult<HeaderOwned> {
+fn header(mut rdr: impl Read) -> PResult<Header> {
     rdr.read_equals(&MAGIC_BYTES)?;
     let version = rdr.read_u16()?;
     let flags = rdr.read_u16()?.into();
     let codec_entries = rdr.read_u16()?;
 
-    let mut codec_table = HashMap::with_capacity(codec_entries as usize);
+    let mut codec_table: Vec<Option<Codec>> = Vec::with_capacity(codec_entries as usize);
     for _ in 0..codec_entries {
-        let length = rdr.read_u8()?; // 8 byte id + 2 byte version + 4-64 chars.
-        if !(11..).contains(&length) {
-            return Err(PError::new_range(length as u64, 11..));
-        }
+        // 2 byte version + 4-64 chars OR empty
+        let length = rdr.read_u8()?;
+        if length != 0 {
+            // TODO: Assert error on fields (e.g. String too long) rather than (entry too long)
+            if !CODEC_ENTRY_LENGTH_BOUNDS.contains(&(length as u64)) {
+                return Err(PError::new_range(length as u64, CODEC_ENTRY_LENGTH_BOUNDS));
+            }
 
-        let codec_id = rdr.read_u64()?;
-        if codec_table.contains_key(&codec_id) {
-            return Err(PError::DuplicateCodec(codec_id));
-        }
+            let version = rdr.read_u16()?;
+            let name = rdr.read_vec(length as usize - 2).map(String::from_utf8)??;
 
-        let version = rdr.read_u16()?;
-        let name = rdr
-            .read_vec(length as usize - 10)
-            .map(String::from_utf8)??;
-        // TODO: Allow longer strings?
-        if !(4..=64).contains(&name.len()) {
-            return Err(PError::new_range(name.len() as u64, 4..=64));
-        }
+            // TODO: Allow longer strings?
+            // TODO: Redundant check
+            if !(4..=64).contains(&name.len()) {
+                return Err(PError::new_range(name.len() as u64, 4..=64));
+            }
 
-        rdr.read_null()?;
-        codec_table.insert(codec_id, CodecEntry { name, version });
+            rdr.read_null()?;
+            codec_table.push(Some(Codec { version, name }));
+        } else {
+            codec_table.push(None);
+        }
     }
 
-    Ok(HeaderOwned {
+    Ok(Header {
         version,
         flags,
         codec_table,
     })
 }
 
-fn record(mut rdr: impl Read) -> PResult<RecordOwned> {
+fn record(mut rdr: impl Read) -> PResult<Record> {
     match rdr.read_pv()? {
-        (CODEC_ID_EOS, _) => Ok(RecordOwned::from_eos()),
+        (CODEC_ID_EOS, _) => Ok(Record::from_eos()),
         (codec_id, _) => {
             let (type_id, _) = rdr.read_pv()?;
             let (length, _) = rdr.read_pv()?;
@@ -238,7 +86,7 @@ fn record(mut rdr: impl Read) -> PResult<RecordOwned> {
                 None
             };
 
-            Ok(RecordOwned {
+            Ok(Record {
                 codec_id,
                 type_id,
                 val,
@@ -250,11 +98,11 @@ fn record(mut rdr: impl Read) -> PResult<RecordOwned> {
 #[cfg(test)]
 mod test {
     use crate::{
-        data::{CodecEntry, HeaderFlags},
+        data::{Codec, HeaderFlags},
         MAGIC_BYTES,
     };
 
-    use std::{collections::HashMap, io::Cursor};
+    use std::io::Cursor;
 
     use super::*;
 
@@ -272,6 +120,8 @@ mod test {
         input.extend_from_slice(b"TEST"); //            Name
         input.extend_from_slice(&[0x00]); //            Guard (null byte)
 
+        input.extend_from_slice(&[0x00]); //            Length (Empty Entry)
+
         input.extend_from_slice(&[0x4A]); //            Length
         input.extend_from_slice(&[0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // CodecID
         input.extend_from_slice(&[0x00, 0x01]); //      Version
@@ -284,25 +134,20 @@ mod test {
         assert!(result.is_ok(), "parse error: {:?}", result);
         assert_eq!(
             result.unwrap(),
-            HeaderOwned {
+            Header {
                 version: 0,
                 flags: HeaderFlags::empty(),
-                codec_table: HashMap::from([
-                    (
-                        18,
-                        CodecEntry {
-                            version: 0,
-                            name: String::from("TEST"),
-                        }
-                    ),
-                    (
-                        261,
-                        CodecEntry {
-                            version: 256,
-                            name: String::from_utf8(vec![b'A'; 64]).unwrap(),
-                        }
-                    ),
-                ])
+                codec_table: vec![
+                    Some(Codec {
+                        version: 0,
+                        name: String::from("TEST"),
+                    }),
+                    None,
+                    Some(Codec {
+                        version: 256,
+                        name: String::from_utf8(vec![b'A'; 64]).unwrap(),
+                    })
+                ]
             }
         );
 
@@ -328,7 +173,7 @@ mod test {
         assert!(result.is_ok(), "parse error: {:?}", result);
         assert_eq!(
             result.unwrap(),
-            RecordOwned {
+            Record {
                 codec_id: 18,
                 type_id: 1,
                 val: Some(vec![0; 255].into()),
@@ -355,7 +200,7 @@ mod test {
         assert!(result.is_ok(), "parse error: {:?}", result);
         assert_eq!(
             result.unwrap(),
-            RecordOwned {
+            Record {
                 codec_id: 18,
                 type_id: 1,
                 val: None,
@@ -382,7 +227,7 @@ mod test {
         assert!(record.is_eos());
         assert_eq!(
             record,
-            RecordOwned {
+            Record {
                 codec_id: CODEC_ID_EOS,
                 type_id: 0,
                 val: None,

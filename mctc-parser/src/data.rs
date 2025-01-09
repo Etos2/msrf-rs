@@ -1,43 +1,36 @@
 use bitflags::bitflags;
-use std::collections::HashMap;
 
-use crate::CODEC_ID_EOS;
+use crate::{CODEC_ID_EOS, CURRENT_VERSION};
 
-pub type CodecTable = HashMap<u64, CodecEntry>;
+// Codecs are stored in a "sparse" vec
+pub type CodecTable = Vec<Option<Codec>>;
 
 // TODO: Impl CodecOwned vs CodecRef?
 #[derive(Debug, Clone, PartialEq)]
 pub struct Codec {
-    pub(crate) id: u64,
-    pub(crate) entry: CodecEntry,
-}
-
-impl From<(u64, CodecEntry)> for Codec {
-    fn from(val: (u64, CodecEntry)) -> Self {
-        Codec {
-            id: val.0,
-            entry: val.1,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CodecEntry {
     pub(crate) version: u16,
     pub(crate) name: String,
 }
 
-impl From<Codec> for CodecEntry {
-    fn from(val: Codec) -> Self {
-        CodecEntry {
-            version: val.entry.version,
-            name: val.entry.name,
+impl Codec {
+    pub fn new(version: u16, name: impl Into<String>) -> Codec {
+        Codec {
+            version,
+            name: name.into(),
         }
+    }
+
+    pub fn version(&self) -> u16 {
+        self.version
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
+    #[derive(Debug, Default, Copy, Clone, PartialEq)]
     pub struct HeaderFlags: u16 {
         // TODO
     }
@@ -49,55 +42,76 @@ impl From<u16> for HeaderFlags {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Header<'a> {
-    pub(crate) version: u16,
-    pub(crate) flags: HeaderFlags,
-    pub(crate) codec_table: &'a CodecTable,
-}
-
-impl<'a> Header<'a> {
-    pub fn get_codec(&self, index: u64) -> Option<Codec> {
-        Some((index, self.codec_table.get(&index)?.clone()).into())
-    }
-
-    pub fn version(&self) -> u16 {
-        self.version
-    }
-
-    pub fn flags(&self) -> HeaderFlags {
-        self.flags
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
-pub struct HeaderOwned {
+pub struct Header {
     pub(crate) version: u16,
     pub(crate) flags: HeaderFlags,
     pub(crate) codec_table: CodecTable,
 }
 
-impl HeaderOwned {
-    pub fn insert_codec(&mut self, val: Codec) {
-        self.codec_table.insert(val.id, val.into());
+impl Header {
+    // TODO: Better ID solution?
+    pub fn register_codec(&mut self, codec: Codec) -> Option<u64> {
+        if !self.contains_name(&codec.name) {
+            match self.find_free() {
+                Some(index) => {
+                    self.codec_table[index] = Some(codec);
+                    Some(index as u64)
+                }
+                None => {
+                    let index = self.codec_table.len();
+                    if index == CODEC_ID_EOS as usize {
+                        return None;
+                    } else {
+                        self.codec_table.push(Some(codec));
+                        Some(index as u64)
+                    }
+                }
+            }
+        } else {
+            None
+        }
     }
 
-    pub fn get_codec(&self, index: u64) -> Option<Codec> {
-        self.codec_table
-            .get(&index)
-            .map(|entry| (index, entry.clone()).into())
+    // TODO: Test!
+    pub fn remove_codec_id(&mut self, id: u64) -> Option<()> {
+        let entry = self.codec_table.get_mut(id as usize)?;
+        if *entry != None {
+            *entry = None;
+            Some(())
+        } else {
+            None
+        }
     }
 
-    pub fn codecs(&self) -> impl Iterator<Item = Codec> + use<'_> {
+    // TODO: Test!
+    pub fn remove_codec(&mut self, codec: &Codec) -> Option<()> {
+        let index = self
+            .codec_table
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| c.as_ref().map(|codec| (i, codec)))
+            .find_map(|(i, c)| if c.name == codec.name { Some(i) } else { None })?;
+
+        self.codec_table[index] = None;
+        Some(())
+    }
+
+    fn find_free(&self) -> Option<usize> {
         self.codec_table
             .iter()
-            .map(|(i, entry)| (*i, entry.clone()).into())
+            .enumerate()
+            .find_map(|(i, c)| match c {
+                Some(_) => None,
+                None => Some(i),
+            })
     }
 
-    pub fn codecs_mut(&mut self) -> impl Iterator<Item = Codec> + use<'_> {
+    fn contains_name(&self, name: &str) -> bool {
         self.codec_table
-            .iter_mut()
-            .map(|(i, entry)| (*i, entry.clone()).into())
+            .iter()
+            .filter_map(Option::as_ref)
+            .any(|c| c.name == name)
     }
 
     pub fn version(&self) -> u16 {
@@ -107,25 +121,35 @@ impl HeaderOwned {
     pub fn flags(&self) -> HeaderFlags {
         self.flags
     }
+}
 
-    pub fn as_ref<'a>(&'a self) -> Header<'a> {
-        Header {
-            version: self.version,
-            flags: self.flags,
-            codec_table: &self.codec_table,
+impl Default for Header {
+    fn default() -> Self {
+        Self {
+            version: CURRENT_VERSION,
+            flags: Default::default(),
+            codec_table: Default::default(),
         }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Record<'a> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct Record {
     pub(crate) codec_id: u64,
     pub(crate) type_id: u64,
-    pub(crate) val: Option<&'a [u8]>,
+    pub(crate) val: Option<Box<[u8]>>,
 }
 
-impl<'a> Record<'a> {
-    pub fn new(codec_id: u64, type_id: u64, val: &'a [u8]) -> Record<'a> {
+impl Record {
+    pub fn from_slice(codec_id: u64, type_id: u64, val: &[u8]) -> Record {
+        Record {
+            codec_id,
+            type_id,
+            val: Some(Box::from(val)),
+        }
+    }
+
+    pub fn from_box(codec_id: u64, type_id: u64, val: Box<[u8]>) -> Record {
         Record {
             codec_id,
             type_id,
@@ -133,53 +157,8 @@ impl<'a> Record<'a> {
         }
     }
 
-    pub fn codec_id(&self) -> u64 {
-        self.codec_id
-    }
-
-    pub fn type_id(&self) -> u64 {
-        self.type_id
-    }
-
-    pub fn value(&self) -> Option<&[u8]> {
-        self.val
-    }
-
-    pub fn to_owned(&self) -> RecordOwned {
-        RecordOwned {
-            codec_id: self.codec_id,
-            type_id: self.type_id,
-            val: self.val.map(|v| Box::from(v)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct RecordOwned {
-    pub(crate) codec_id: u64,
-    pub(crate) type_id: u64,
-    pub(crate) val: Option<Box<[u8]>>,
-}
-
-impl RecordOwned {
-    pub fn from_slice(codec_id: u64, type_id: u64, val: &[u8]) -> RecordOwned {
-        RecordOwned {
-            codec_id,
-            type_id,
-            val: Some(Box::from(val)),
-        }
-    }
-
-    pub fn from_box(codec_id: u64, type_id: u64, val: Box<[u8]>) -> RecordOwned {
-        RecordOwned {
-            codec_id,
-            type_id,
-            val: Some(val),
-        }
-    }
-
-    pub fn from_eos() -> RecordOwned {
-        RecordOwned {
+    pub fn from_eos() -> Record {
+        Record {
             codec_id: CODEC_ID_EOS,
             type_id: 0,
             val: None,
@@ -201,12 +180,74 @@ impl RecordOwned {
     pub fn value(&self) -> Option<&[u8]> {
         self.val.as_deref()
     }
+}
 
-    pub fn as_ref<'a>(&'a self) -> Record<'a> {
-        Record {
-            codec_id: self.codec_id,
-            type_id: self.type_id,
-            val: self.val.as_deref(),
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn header_from_raw_table<S>(names: &[Option<S>]) -> Header
+    where
+        S: Into<String> + Clone,
+    {
+        Header {
+            version: 0,
+            flags: HeaderFlags::empty(),
+            codec_table: names
+                .iter()
+                .cloned()
+                .map(|opt_name| {
+                    opt_name.map(|name| Codec {
+                        version: 0,
+                        name: name.into(),
+                    })
+                })
+                .collect(),
         }
+    }
+
+    #[test]
+    fn test_header_register() {
+        let mut header = header_from_raw_table(&[Some("test_0"), Some("test_1"), Some("test_2")]);
+        assert!(header.register_codec(Codec::new(0, "test_0")).is_none());
+        assert!(header.register_codec(Codec::new(0, "test_1")).is_none());
+        assert!(header.register_codec(Codec::new(0, "test_2")).is_none());
+
+        header.register_codec(Codec::new(0, "test_3")).unwrap();
+
+        assert_eq!(
+            header,
+            header_from_raw_table(&[
+                Some("test_0"),
+                Some("test_1"),
+                Some("test_2"),
+                Some("test_3")
+            ])
+        )
+    }
+
+    #[test]
+    fn test_header_register_fragmented() {
+        let mut header =
+            header_from_raw_table(&[Some("test_0"), Some("test_1"), None, None, Some("test_4")]);
+        assert!(header.register_codec(Codec::new(0, "test_0")).is_none());
+        assert!(header.register_codec(Codec::new(0, "test_1")).is_none());
+        assert!(header.register_codec(Codec::new(0, "test_4")).is_none());
+
+        header.register_codec(Codec::new(0, "test_2")).unwrap();
+        header.register_codec(Codec::new(0, "test_3")).unwrap();
+        header.register_codec(Codec::new(0, "test_5")).unwrap();
+
+        assert_eq!(
+            header,
+            header_from_raw_table(&[
+                Some("test_0"),
+                Some("test_1"),
+                Some("test_2"),
+                Some("test_3"),
+                Some("test_4"),
+                Some("test_5"),
+            ])
+        )
     }
 }
