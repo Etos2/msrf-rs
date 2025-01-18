@@ -1,5 +1,5 @@
 use crate::{
-    data::{Codec, Header, Record},
+    data::{Codec, Header, Record, RecordMeta},
     error::{PError, PResult},
     util::ReadExt,
     DefaultOptions, CODEC_ENTRY_LENGTH_BOUNDS, CODEC_ID_EOS, MAGIC_BYTES,
@@ -30,6 +30,10 @@ pub fn parse_header(mut rdr: impl Read) -> PResult<Header> {
 
 pub fn parse_record(mut rdr: impl Read) -> PResult<Record> {
     record(&mut rdr)
+}
+
+pub fn parse_record_prefix(mut rdr: impl Read) -> PResult<RecordMeta> {
+    record_prefix(&mut rdr)
 }
 
 fn header(mut rdr: impl Read) -> PResult<Header> {
@@ -73,7 +77,7 @@ fn header(mut rdr: impl Read) -> PResult<Header> {
 
 fn record(mut rdr: impl Read) -> PResult<Record> {
     match rdr.read_pv()? {
-        (CODEC_ID_EOS, _) => Ok(Record::from_eos()),
+        (CODEC_ID_EOS, _) => Ok(Record::new_eos()),
         (codec_id, _) => {
             let (type_id, _) = rdr.read_pv()?;
             let (length, _) = rdr.read_pv()?;
@@ -90,6 +94,22 @@ fn record(mut rdr: impl Read) -> PResult<Record> {
                 codec_id,
                 type_id,
                 val,
+            })
+        }
+    }
+}
+
+fn record_prefix(mut rdr: impl Read) -> PResult<RecordMeta> {
+    match rdr.read_pv()? {
+        (CODEC_ID_EOS, _) => Ok(RecordMeta::new_eos()),
+        (codec_id, _) => {
+            let (type_id, _) = rdr.read_pv()?;
+            let (length, _) = rdr.read_pv()?;
+
+            Ok(RecordMeta {
+                codec_id,
+                type_id,
+                length: length as usize,
             })
         }
     }

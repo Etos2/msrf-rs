@@ -1,5 +1,7 @@
 use std::{error::Error, io::{Read, Write}, ops::RangeInclusive};
 
+use data::RecordMeta;
+
 pub mod data;
 pub mod error;
 pub mod reader;
@@ -21,25 +23,25 @@ impl Default for DefaultOptions {
     }
 }
 
-pub trait Record {
+pub trait RecordImpl {
     fn type_id(&self) -> u64;
     fn length(&self) -> usize;
 }
 
-pub trait WriteRecord<E: Error>: Record {
+pub trait WriteRecord<E: Error>: RecordImpl {
     fn write_into(&self, wtr: impl Write) -> Result<(), E>;
 }
 
-pub trait ReadRecord<E: Error>: Record {
-    fn read_from(rdr: impl Read) -> Result<Self, E> where Self: Sized;
+pub trait ReadRecord<E: Error>: RecordImpl {
+    fn read_from(rdr: impl Read, meta: RecordMeta) -> Result<Self, E> where Self: Sized;
 }
 
 pub trait Codec {
     const NAME: &'static str;
     type Err: Error;
-    type Rec: Record + WriteRecord<Self::Err> + ReadRecord<Self::Err>;
+    type Rec: RecordImpl + WriteRecord<Self::Err> + ReadRecord<Self::Err>;
 
     fn codec_id(&self) -> u64;
     fn write_record(&mut self, wtr: impl Write, rec: &Self::Rec) -> Result<(), Self::Err>;
-    fn read_record(&mut self, rdr: impl Read) -> Result<Self::Rec, Self::Err>;
+    fn read_record(&mut self, rdr: impl Read, meta: RecordMeta) -> Result<Self::Rec, Self::Err>;
 }

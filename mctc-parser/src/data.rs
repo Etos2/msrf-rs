@@ -134,6 +134,39 @@ impl Default for Header {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct RecordMeta {
+    pub(crate) codec_id: u64,
+    pub(crate) type_id: u64,
+    pub(crate) length: usize,
+}
+
+impl RecordMeta {
+    pub fn new_eos() -> Self {
+        RecordMeta {
+            codec_id: CODEC_ID_EOS,
+            type_id: 0,
+            length: 9,
+        }
+    }
+
+    pub fn is_eos(&self) -> bool {
+        self.codec_id == CODEC_ID_EOS
+    }
+
+    pub fn codec_id(&self) -> u64 {
+        self.codec_id
+    }
+
+    pub fn type_id(&self) -> u64 {
+        self.type_id
+    }
+
+    pub fn len(&self) -> usize {
+        self.length
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Record {
     pub(crate) codec_id: u64,
     pub(crate) type_id: u64,
@@ -141,7 +174,7 @@ pub struct Record {
 }
 
 impl Record {
-    pub fn from_slice(codec_id: u64, type_id: u64, val: &[u8]) -> Record {
+    pub fn from_slice(codec_id: u64, type_id: u64, val: &[u8]) -> Self {
         Record {
             codec_id,
             type_id,
@@ -149,7 +182,7 @@ impl Record {
         }
     }
 
-    pub fn from_box(codec_id: u64, type_id: u64, val: Box<[u8]>) -> Record {
+    pub fn from_box(codec_id: u64, type_id: u64, val: Box<[u8]>) -> Self {
         Record {
             codec_id,
             type_id,
@@ -157,7 +190,7 @@ impl Record {
         }
     }
 
-    pub fn from_eos() -> Record {
+    pub fn new_eos() -> Self {
         Record {
             codec_id: CODEC_ID_EOS,
             type_id: 0,
@@ -175,6 +208,10 @@ impl Record {
 
     pub fn type_id(&self) -> u64 {
         self.type_id
+    }
+
+    pub fn len(&self) -> usize {
+        self.val.as_ref().map(|data| data.len()).unwrap_or(0)
     }
 
     pub fn value(&self) -> Option<&[u8]> {
