@@ -1,4 +1,8 @@
-use std::{error::Error, io::{Read, Write}, ops::RangeInclusive};
+use std::{
+    error::Error,
+    io::{Read, Write},
+    ops::RangeInclusive,
+};
 
 use data::RecordMeta;
 
@@ -33,13 +37,15 @@ pub trait WriteRecord<E: Error>: RecordImpl {
 }
 
 pub trait ReadRecord<E: Error>: RecordImpl {
-    fn read_from(rdr: impl Read, meta: RecordMeta) -> Result<Self, E> where Self: Sized;
+    fn read_from(rdr: impl Read, meta: RecordMeta) -> Result<Self, E>
+    where
+        Self: Sized;
 }
 
 pub trait Codec {
     const NAME: &'static str;
     type Err: Error;
-    type Rec: RecordImpl + WriteRecord<Self::Err> + ReadRecord<Self::Err>;
+    type Rec;
 
     fn codec_id(&self) -> u64;
     fn write_record(&mut self, wtr: impl Write, rec: &Self::Rec) -> Result<(), Self::Err>;
