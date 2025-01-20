@@ -44,6 +44,7 @@ pub trait ReadRecord<E: Error>: RecordImpl {
 
 pub trait Codec {
     const NAME: &'static str;
+    const VERSION: u16;
     type Err: Error;
     type Rec;
 

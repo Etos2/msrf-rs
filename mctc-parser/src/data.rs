@@ -1,20 +1,20 @@
 use bitflags::bitflags;
 
-use crate::{CODEC_ID_EOS, CURRENT_VERSION};
+use crate::{Codec, CODEC_ID_EOS, CURRENT_VERSION};
 
 // Codecs are stored in a "sparse" vec
-pub type CodecTable = Vec<Option<Codec>>;
+pub type CodecTable = Vec<Option<CodecEntry>>;
 
 // TODO: Impl CodecOwned vs CodecRef?
 #[derive(Debug, Clone, PartialEq)]
-pub struct Codec {
+pub struct CodecEntry {
     pub(crate) version: u16,
     pub(crate) name: String,
 }
 
-impl Codec {
-    pub fn new(version: u16, name: impl Into<String>) -> Codec {
-        Codec {
+impl CodecEntry {
+    pub fn new(version: u16, name: impl Into<String>) -> CodecEntry {
+        CodecEntry {
             version,
             name: name.into(),
         }
@@ -50,12 +50,21 @@ pub struct Header {
 }
 
 impl Header {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     // TODO: Better ID solution?
-    pub fn register_codec(&mut self, codec: Codec) -> Option<u64> {
-        if !self.contains_name(&codec.name) {
+    pub fn register_codec<C: Codec>(&mut self) -> Option<u64> {
+        let entry = CodecEntry::new(C::VERSION, C::NAME);
+        self.register_codec_impl(entry)
+    }
+
+    fn register_codec_impl(&mut self, entry: CodecEntry) -> Option<u64> {
+        if !self.contains_name(&entry.name) {
             match self.find_free() {
                 Some(index) => {
-                    self.codec_table[index] = Some(codec);
+                    self.codec_table[index] = Some(entry);
                     Some(index as u64)
                 }
                 None => {
@@ -63,7 +72,7 @@ impl Header {
                     if index == CODEC_ID_EOS as usize {
                         return None;
                     } else {
-                        self.codec_table.push(Some(codec));
+                        self.codec_table.push(Some(entry));
                         Some(index as u64)
                     }
                 }
@@ -85,7 +94,7 @@ impl Header {
     }
 
     // TODO: Test!
-    pub fn remove_codec(&mut self, codec: &Codec) -> Option<()> {
+    pub fn remove_codec(&mut self, codec: &CodecEntry) -> Option<()> {
         let index = self
             .codec_table
             .iter()
@@ -107,6 +116,7 @@ impl Header {
             })
     }
 
+    // TODO: Binary search? Explore how this works with sparse vec
     fn contains_name(&self, name: &str) -> bool {
         self.codec_table
             .iter()
@@ -234,7 +244,7 @@ mod test {
                 .iter()
                 .cloned()
                 .map(|opt_name| {
-                    opt_name.map(|name| Codec {
+                    opt_name.map(|name| CodecEntry {
                         version: 0,
                         name: name.into(),
                     })
@@ -246,11 +256,19 @@ mod test {
     #[test]
     fn test_header_register() {
         let mut header = header_from_raw_table(&[Some("test_0"), Some("test_1"), Some("test_2")]);
-        assert!(header.register_codec(Codec::new(0, "test_0")).is_none());
-        assert!(header.register_codec(Codec::new(0, "test_1")).is_none());
-        assert!(header.register_codec(Codec::new(0, "test_2")).is_none());
+        assert!(header
+            .register_codec_impl(CodecEntry::new(0, "test_0"))
+            .is_none());
+        assert!(header
+            .register_codec_impl(CodecEntry::new(0, "test_1"))
+            .is_none());
+        assert!(header
+            .register_codec_impl(CodecEntry::new(0, "test_2"))
+            .is_none());
 
-        header.register_codec(Codec::new(0, "test_3")).unwrap();
+        header
+            .register_codec_impl(CodecEntry::new(0, "test_3"))
+            .unwrap();
 
         assert_eq!(
             header,
@@ -267,13 +285,25 @@ mod test {
     fn test_header_register_fragmented() {
         let mut header =
             header_from_raw_table(&[Some("test_0"), Some("test_1"), None, None, Some("test_4")]);
-        assert!(header.register_codec(Codec::new(0, "test_0")).is_none());
-        assert!(header.register_codec(Codec::new(0, "test_1")).is_none());
-        assert!(header.register_codec(Codec::new(0, "test_4")).is_none());
+        assert!(header
+            .register_codec_impl(CodecEntry::new(0, "test_0"))
+            .is_none());
+        assert!(header
+            .register_codec_impl(CodecEntry::new(0, "test_1"))
+            .is_none());
+        assert!(header
+            .register_codec_impl(CodecEntry::new(0, "test_4"))
+            .is_none());
 
-        header.register_codec(Codec::new(0, "test_2")).unwrap();
-        header.register_codec(Codec::new(0, "test_3")).unwrap();
-        header.register_codec(Codec::new(0, "test_5")).unwrap();
+        header
+            .register_codec_impl(CodecEntry::new(0, "test_2"))
+            .unwrap();
+        header
+            .register_codec_impl(CodecEntry::new(0, "test_3"))
+            .unwrap();
+        header
+            .register_codec_impl(CodecEntry::new(0, "test_5"))
+            .unwrap();
 
         assert_eq!(
             header,

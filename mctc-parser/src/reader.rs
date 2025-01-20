@@ -1,5 +1,5 @@
 use crate::{
-    data::{Codec, Header, Record, RecordMeta},
+    data::{CodecEntry, Header, Record, RecordMeta},
     error::{PError, PResult},
     util::ReadExt,
     DefaultOptions, CODEC_ENTRY_LENGTH_BOUNDS, CODEC_ID_EOS, MAGIC_BYTES,
@@ -42,7 +42,7 @@ fn header(mut rdr: impl Read) -> PResult<Header> {
     let flags = rdr.read_u16()?.into();
     let codec_entries = rdr.read_u16()?;
 
-    let mut codec_table: Vec<Option<Codec>> = Vec::with_capacity(codec_entries as usize);
+    let mut codec_table: Vec<Option<CodecEntry>> = Vec::with_capacity(codec_entries as usize);
     for _ in 0..codec_entries {
         // 2 byte version + 4-64 chars OR empty
         let length = rdr.read_u8()?;
@@ -62,7 +62,7 @@ fn header(mut rdr: impl Read) -> PResult<Header> {
             }
 
             rdr.read_null()?;
-            codec_table.push(Some(Codec { version, name }));
+            codec_table.push(Some(CodecEntry { version, name }));
         } else {
             codec_table.push(None);
         }
@@ -118,7 +118,7 @@ fn record_prefix(mut rdr: impl Read) -> PResult<RecordMeta> {
 #[cfg(test)]
 mod test {
     use crate::{
-        data::{Codec, HeaderFlags},
+        data::{CodecEntry, HeaderFlags},
         MAGIC_BYTES,
     };
 
@@ -158,12 +158,12 @@ mod test {
                 version: 0,
                 flags: HeaderFlags::empty(),
                 codec_table: vec![
-                    Some(Codec {
+                    Some(CodecEntry {
                         version: 0,
                         name: String::from("TEST"),
                     }),
                     None,
-                    Some(Codec {
+                    Some(CodecEntry {
                         version: 256,
                         name: String::from_utf8(vec![b'A'; 64]).unwrap(),
                     })

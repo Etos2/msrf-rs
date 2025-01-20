@@ -6,6 +6,7 @@ use crate::{
     util::WriteExt,
     CODEC_ID_EOS, CODEC_NAME_BOUNDS, MAGIC_BYTES,
 };
+
 pub fn write_header(mut wtr: impl Write, header: &Header) -> PResult<()> {
     wtr.write_all(&MAGIC_BYTES)?;
     wtr.write_u16(header.version)?;
@@ -55,7 +56,7 @@ pub fn write_record(mut wtr: impl Write, record: &Record) -> PResult<()> {
 mod test {
     use std::{io::Cursor, u64};
 
-    use crate::data::{Codec, Header, HeaderFlags, Record};
+    use crate::data::{CodecEntry, Header, HeaderFlags, Record};
 
     use super::*;
 
@@ -67,12 +68,12 @@ mod test {
             version: 0,
             flags: HeaderFlags::empty(),
             codec_table: vec![
-                Some(Codec {
+                Some(CodecEntry {
                     version: 0,
                     name: String::from("TEST"),
                 }),
                 None,
-                Some(Codec {
+                Some(CodecEntry {
                     version: 256,
                     name: String::from_utf8(vec![b'A'; 64]).unwrap(),
                 }),
