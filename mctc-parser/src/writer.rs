@@ -1,11 +1,93 @@
 use std::io::Write;
 
 use crate::{
-    data::{Header, Record},
+    data::{CodecTable, Header, HeaderFlags, Record},
     error::{PError, PResult},
     util::WriteExt,
-    CODEC_ID_EOS, CODEC_NAME_BOUNDS, MAGIC_BYTES,
+    Codec, Options, CODEC_ID_EOS, CODEC_NAME_BOUNDS, CURRENT_VERSION, MAGIC_BYTES,
 };
+
+// TODO: Handling of multiple writers (a codec registered in one can then be passed to another)
+#[derive(Debug)]
+pub struct WriterHandle<'a, C: Codec> {
+    codec: &'a mut C,
+    id: u64,
+}
+
+impl<'a, C: Codec> WriterHandle<'a, C> {
+    fn new(codec: &'a mut C, id: u64) -> Self {
+        WriterHandle { codec, id }
+    }
+
+    fn codec_id(&self) -> u64 {
+        self.id
+    }
+
+    fn as_parts(&'a mut self) -> (u64, &'a mut C) {
+        (self.id, self.codec)
+    }
+
+    pub fn write(
+        &'a mut self, wtr: &'a mut impl Write,
+        value: C::Rec,
+    ) -> PResult<()> {
+        write_custom(wtr, self, value)
+    }
+}
+
+pub struct WriterBuilder {
+    opt: Options,
+    codecs: CodecTable,
+}
+
+impl WriterBuilder {
+    pub(crate) fn new(opt: Options) -> Self {
+        WriterBuilder {
+            opt,
+            codecs: CodecTable::new(),
+        }
+    }
+
+    pub fn register<'a, C: Codec>(&mut self, codec: &'a mut C) -> Option<WriterHandle<'a, C>> {
+        let id = self.codecs.register::<C>()?;
+        Some(WriterHandle::new(codec, id))
+    }
+
+    pub fn begin<W: Write>(self, wtr: &mut W) -> PResult<Writer> {
+        let header = Header {
+            version: CURRENT_VERSION,
+            flags: HeaderFlags::empty(),
+            codec_table: self.codecs,
+        };
+
+        write_header(wtr, &header)?;
+        Ok(Writer::new())
+    }
+}
+
+impl Default for WriterBuilder {
+    fn default() -> Self {
+        WriterBuilder {
+            opt: Options::default(),
+            codecs: CodecTable::new(),
+        }
+    }
+}
+
+// TODO: Customisability?
+pub struct Writer {}
+
+impl Writer {
+    fn new() -> Self {
+        Writer {  }
+    }
+
+    pub fn finish(self, wtr: &mut impl Write) -> PResult<()> {
+        write_record(&mut *wtr, &Record::new_eos())?;
+        wtr.flush()?;
+        Ok(())
+    }
+}
 
 pub fn write_header(mut wtr: impl Write, header: &Header) -> PResult<()> {
     wtr.write_all(&MAGIC_BYTES)?;
@@ -13,7 +95,7 @@ pub fn write_header(mut wtr: impl Write, header: &Header) -> PResult<()> {
     wtr.write_u16(header.flags.bits())?;
     wtr.write_u16(header.codec_table.len() as u16)?;
 
-    for opt_codec in header.codec_table.iter() {
+    for opt_codec in header.codec_table.as_ref().iter() {
         if let Some(codec) = opt_codec {
             if CODEC_NAME_BOUNDS.contains(&(codec.name.len() as u64)) {
                 let len = codec.name.len() + 8;
@@ -52,6 +134,29 @@ pub fn write_record(mut wtr: impl Write, record: &Record) -> PResult<()> {
     Ok(())
 }
 
+// TODO: Test!
+fn write_custom<'a, C: Codec>(
+    wtr: &'a mut impl Write,
+    handle: &'a mut WriterHandle<'a, C>,
+    value: C::Rec,
+) -> PResult<()> {
+    let (codec_id, codec) = handle.as_parts();
+    wtr.write_pv(codec_id)?;
+    if codec_id != CODEC_ID_EOS {
+        wtr.write_pv(codec.type_id(&value))?;
+        let len = codec.size(&value);
+        if len > 0 {
+            wtr.write_pv(len as u64)?;
+            codec.write_value(&mut *wtr, &value).unwrap(); // TODO: Need to return User Error + Parser Error (Fun!)
+            wtr.write_null()?;
+        } else {
+            wtr.write_pv(0)?;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use std::{io::Cursor, u64};
@@ -67,7 +172,7 @@ mod test {
         let header_data = Header {
             version: 0,
             flags: HeaderFlags::empty(),
-            codec_table: vec![
+            codec_table: CodecTable::from(vec![
                 Some(CodecEntry {
                     version: 0,
                     name: String::from("TEST"),
@@ -77,7 +182,7 @@ mod test {
                     version: 256,
                     name: String::from_utf8(vec![b'A'; 64]).unwrap(),
                 }),
-            ],
+            ]),
         };
 
         let mut output = Vec::new();

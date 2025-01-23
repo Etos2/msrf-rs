@@ -2,24 +2,24 @@ use crate::{
     data::{CodecEntry, Header, Record, RecordMeta},
     error::{PError, PResult},
     util::ReadExt,
-    DefaultOptions, CODEC_ENTRY_LENGTH_BOUNDS, CODEC_ID_EOS, MAGIC_BYTES,
+    Options, CODEC_ENTRY_LENGTH_BOUNDS, CODEC_ID_EOS, MAGIC_BYTES,
 };
 use std::io::Read;
 
 pub struct Reader {
-    _options: DefaultOptions,
+    _options: Options,
 }
 
 impl Reader {
     pub fn new() -> Self {
         Reader {
-            _options: DefaultOptions::default(),
+            _options: Options::default(),
         }
     }
 }
 
-impl From<DefaultOptions> for Reader {
-    fn from(value: DefaultOptions) -> Self {
+impl From<Options> for Reader {
+    fn from(value: Options) -> Self {
         Reader { _options: value }
     }
 }
@@ -71,7 +71,7 @@ fn header(mut rdr: impl Read) -> PResult<Header> {
     Ok(Header {
         version,
         flags,
-        codec_table,
+        codec_table: codec_table.into(),
     })
 }
 
@@ -118,7 +118,7 @@ fn record_prefix(mut rdr: impl Read) -> PResult<RecordMeta> {
 #[cfg(test)]
 mod test {
     use crate::{
-        data::{CodecEntry, HeaderFlags},
+        data::{CodecEntry, CodecTable, HeaderFlags},
         MAGIC_BYTES,
     };
 
@@ -157,7 +157,7 @@ mod test {
             Header {
                 version: 0,
                 flags: HeaderFlags::empty(),
-                codec_table: vec![
+                codec_table: CodecTable::from(vec![
                     Some(CodecEntry {
                         version: 0,
                         name: String::from("TEST"),
@@ -167,7 +167,7 @@ mod test {
                         version: 256,
                         name: String::from_utf8(vec![b'A'; 64]).unwrap(),
                     })
-                ]
+                ])
             }
         );
 

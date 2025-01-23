@@ -19,9 +19,9 @@ const CODEC_NAME_BOUNDS: RangeInclusive<u64> = 4..=64;
 const CODEC_ENTRY_LENGTH_BOUNDS: RangeInclusive<u64> = 6..=66;
 
 // TODO: Impl options
-pub struct DefaultOptions {}
+pub struct Options {}
 
-impl Default for DefaultOptions {
+impl Default for Options {
     fn default() -> Self {
         Self {}
     }
@@ -48,7 +48,8 @@ pub trait Codec {
     type Err: Error;
     type Rec;
 
-    fn codec_id(&self) -> u64;
-    fn write_record(&mut self, wtr: impl Write, rec: &Self::Rec) -> Result<(), Self::Err>;
-    fn read_record(&mut self, rdr: impl Read, meta: RecordMeta) -> Result<Self::Rec, Self::Err>;
+    fn type_id(&self, rec: &Self::Rec) -> u64;
+    fn size(&self, rec: &Self::Rec) -> usize;
+    fn write_value(&mut self, wtr: impl Write, rec: &Self::Rec) -> Result<(), Self::Err>;
+    fn read_value(&mut self, rdr: impl Read, meta: RecordMeta) -> Result<Self::Rec, Self::Err>;
 }

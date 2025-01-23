@@ -30,6 +30,7 @@ pub enum PError {
     NoCodec(u16),
     DuplicateCodec(u64),
     InvalidGVE,
+    UnexpectedEos,
 }
 
 impl PError {
@@ -69,6 +70,7 @@ impl Display for PError {
             PError::NoCodec(id) => write!(f, "codec with id \'{id}\' does not exist"),
             PError::DuplicateCodec(id) => write!(f, "codec with id \'{id}\' already exists"),
             PError::InvalidGVE => write!(f, "invalid gve (maximum 8 bytes)"),
+            PError::UnexpectedEos => write!(f, "unexpected eos before stream has ended"),
         }
     }
 }
