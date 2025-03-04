@@ -8,8 +8,11 @@ use data::RecordMeta;
 
 pub mod data;
 pub mod error;
+#[cfg(feature = "io")]
+pub mod io;
+#[cfg(not(feature = "io"))]
+mod io;
 pub mod reader;
-pub(crate) mod util;
 pub mod writer;
 
 const CURRENT_VERSION: u16 = 0;

@@ -1,7 +1,7 @@
 use crate::{
     data::{CodecEntry, Header, Record, RecordMeta},
     error::{PError, PResult},
-    util::ReadExt,
+    io::ReadExt,
     Options, CODEC_ENTRY_LENGTH_BOUNDS, CODEC_ID_EOS, MAGIC_BYTES,
 };
 use std::io::Read;
@@ -33,19 +33,25 @@ pub fn parse_record(mut rdr: impl Read) -> PResult<Record> {
 }
 
 pub fn parse_record_prefix(mut rdr: impl Read) -> PResult<RecordMeta> {
-    record_prefix(&mut rdr)
+    record_meta(&mut rdr)
 }
 
 fn header(mut rdr: impl Read) -> PResult<Header> {
-    rdr.read_equals(&MAGIC_BYTES)?;
+    let magic_number = rdr.read_u32()?;
+    if magic_number != u32::from_le_bytes(MAGIC_BYTES) {
+        return Err(PError::MismatchBytes {
+            found: magic_number.to_le_bytes().to_vec(),
+            expected: MAGIC_BYTES.to_vec(),
+        });
+    }
+
     let version = rdr.read_u16()?;
     let flags = rdr.read_u16()?.into();
     let codec_entries = rdr.read_u16()?;
-
-    let mut codec_table: Vec<Option<CodecEntry>> = Vec::with_capacity(codec_entries as usize);
+    let mut codec_table = Vec::with_capacity(codec_entries as usize);
     for _ in 0..codec_entries {
         // 2 byte version + 4-64 chars OR empty
-        let length = rdr.read_u8()?;
+        let length = rdr.read_u8()? as usize;
         if length != 0 {
             // TODO: Assert error on fields (e.g. String too long) rather than (entry too long)
             if !CODEC_ENTRY_LENGTH_BOUNDS.contains(&(length as u64)) {
@@ -53,15 +59,22 @@ fn header(mut rdr: impl Read) -> PResult<Header> {
             }
 
             let version = rdr.read_u16()?;
-            let name = rdr.read_vec(length as usize - 2).map(String::from_utf8)??;
+            let name = rdr.read_chunk(length - 2).map(String::from_utf8)??;
 
             // TODO: Allow longer strings?
-            // TODO: Redundant check
+            // TODO: Redundant check (previously asserted above)
             if !(4..=64).contains(&name.len()) {
                 return Err(PError::new_range(name.len() as u64, 4..=64));
             }
 
-            rdr.read_null()?;
+            let guard = rdr.read_u8()?;
+            if guard != 0 {
+                return Err(PError::MismatchBytes {
+                    found: vec![guard; 1],
+                    expected: vec![0x00; 1],
+                });
+            }
+
             codec_table.push(Some(CodecEntry { version, name }));
         } else {
             codec_table.push(None);
@@ -76,15 +89,22 @@ fn header(mut rdr: impl Read) -> PResult<Header> {
 }
 
 fn record(mut rdr: impl Read) -> PResult<Record> {
-    match rdr.read_pv()? {
-        (CODEC_ID_EOS, _) => Ok(Record::new_eos()),
-        (codec_id, _) => {
-            let (type_id, _) = rdr.read_pv()?;
-            let (length, _) = rdr.read_pv()?;
+    match rdr.read_pvarint()? {
+        CODEC_ID_EOS => Ok(Record::new_eos()),
+        codec_id => {
+            let type_id = rdr.read_pvarint()?;
+            let length = rdr.read_pvarint()?;
 
             let val = if length != 0 {
-                let val = rdr.read_vec(length as usize)?.into();
-                rdr.read_null()?;
+                let val = rdr.read_chunk(length as usize)?.into();
+                let guard = rdr.read_u8()?;
+                if guard != 0 {
+                    return Err(PError::MismatchBytes {
+                        found: vec![guard; 1],
+                        expected: vec![0x00; 1],
+                    });
+                }
+
                 Some(val)
             } else {
                 None
@@ -99,12 +119,12 @@ fn record(mut rdr: impl Read) -> PResult<Record> {
     }
 }
 
-fn record_prefix(mut rdr: impl Read) -> PResult<RecordMeta> {
-    match rdr.read_pv()? {
-        (CODEC_ID_EOS, _) => Ok(RecordMeta::new_eos()),
-        (codec_id, _) => {
-            let (type_id, _) = rdr.read_pv()?;
-            let (length, _) = rdr.read_pv()?;
+fn record_meta(mut rdr: impl Read) -> PResult<RecordMeta> {
+    match rdr.read_pvarint()? {
+        CODEC_ID_EOS => Ok(RecordMeta::new_eos()),
+        codec_id => {
+            let type_id = rdr.read_pvarint()?;
+            let length = rdr.read_pvarint()?;
 
             Ok(RecordMeta {
                 codec_id,
@@ -117,14 +137,14 @@ fn record_prefix(mut rdr: impl Read) -> PResult<RecordMeta> {
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        data::{CodecEntry, CodecTable, HeaderFlags},
-        MAGIC_BYTES,
-    };
-
     use std::io::Cursor;
 
     use super::*;
+    use crate::{
+        data::{CodecEntry, CodecTable, HeaderFlags},
+        io::*,
+        MAGIC_BYTES,
+    };
 
     #[test]
     fn test_header() {
@@ -132,18 +152,16 @@ mod test {
         input.extend_from_slice(&MAGIC_BYTES); //       Magic Bytes "MCTC"
         input.extend_from_slice(&[0x00, 0x00]); //      Version
         input.extend_from_slice(&[0x00, 0x00]); //      Flags (Unused)
-        input.extend_from_slice(&[0x02, 0x00]); //      Codec Entries
+        input.extend_from_slice(&[0x03, 0x00]); //      Codec Entries
 
-        input.extend_from_slice(&[0x0E]); //            Length
-        input.extend_from_slice(&[0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // CodecID
+        input.extend_from_slice(&[0x06]); //            Length
         input.extend_from_slice(&[0x00, 0x00]); //      Version
         input.extend_from_slice(b"TEST"); //            Name
         input.extend_from_slice(&[0x00]); //            Guard (null byte)
 
         input.extend_from_slice(&[0x00]); //            Length (Empty Entry)
 
-        input.extend_from_slice(&[0x4A]); //            Length
-        input.extend_from_slice(&[0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); // CodecID
+        input.extend_from_slice(&[0x42]); //            Length
         input.extend_from_slice(&[0x00, 0x01]); //      Version
         input.extend_from_slice(&vec![b'A'; 64]); //    Name
         input.extend_from_slice(&[0x00]); //            Guard (null byte)
@@ -263,25 +281,28 @@ mod test {
 
     #[test]
     fn test_pv() {
-        // Full (9 byte)
-        let mut rdr = Cursor::new([0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
-        let data = rdr.read_pv().unwrap();
-        assert_eq!(data, (u64::MAX, rdr.into_inner().len()));
+        fn harness<T: AsRef<[u8]>>(data: T, expected: (u64, usize)) {
+            let mut rdr = IoCounter::new(Cursor::new(data));
+            let data = rdr.read_pvarint().unwrap();
+            assert_eq!(data, expected.0);
+            assert_eq!(rdr.count(), expected.1);
+        }
+
         // Empty (1 byte)
-        let mut rdr = Cursor::new([0x01]);
-        let data = rdr.read_pv().unwrap();
-        assert_eq!(data, (0x00, rdr.into_inner().len()));
+        harness([0x01], (0, 1));
         // Partial (1 byte)
-        let mut rdr = Cursor::new([0x25]);
-        let data = rdr.read_pv().unwrap();
-        assert_eq!(data, (18, rdr.into_inner().len()));
+        harness([0x25], (18, 1));
         // Partial (2 byte)
-        let mut rdr = Cursor::new([(0xFF << 2) | 0x02, 0x03]);
-        let data = rdr.read_pv().unwrap();
-        assert_eq!(data, (0xFF, rdr.into_inner().len()));
+        harness([(0xFF << 2) | 0x02, 0x03], (255, 2));
         // Partial (8 byte)
-        let mut rdr = Cursor::new([0x80, 0xFA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
-        let data = rdr.read_pv().unwrap();
-        assert_eq!(data, (0xFFFFFFFFFFFFFA, rdr.into_inner().len()));
+        harness(
+            [0x80, 0xFA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            (0xFFFFFFFFFFFFFA, 8),
+        );
+        // Full (9 byte)
+        harness(
+            [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            (u64::MAX, 9),
+        );
     }
 }

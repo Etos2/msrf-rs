@@ -3,7 +3,7 @@ use std::io::Write;
 use crate::{
     data::{CodecTable, Header, HeaderFlags, Record},
     error::{PError, PResult},
-    util::WriteExt,
+    io::WriteExt,
     Codec, Options, CODEC_ID_EOS, CODEC_NAME_BOUNDS, CURRENT_VERSION, MAGIC_BYTES,
 };
 
@@ -23,14 +23,11 @@ impl<'a, C: Codec> WriterHandle<'a, C> {
         self.id
     }
 
-    fn as_parts(&'a mut self) -> (u64, &'a mut C) {
+    fn as_parts<'b>(&'b mut self) -> (u64, &'b mut C) {
         (self.id, self.codec)
     }
 
-    pub fn write(
-        &'a mut self, wtr: &'a mut impl Write,
-        value: C::Rec,
-    ) -> PResult<()> {
+    pub fn write(&mut self, wtr: &mut impl Write, value: C::Rec) -> PResult<()> {
         write_custom(wtr, self, value)
     }
 }
@@ -53,15 +50,15 @@ impl WriterBuilder {
         Some(WriterHandle::new(codec, id))
     }
 
-    pub fn begin<W: Write>(self, wtr: &mut W) -> PResult<Writer> {
+    pub fn begin<W: Write>(self, mut wtr: W) -> PResult<Writer<W>> {
         let header = Header {
             version: CURRENT_VERSION,
             flags: HeaderFlags::empty(),
             codec_table: self.codecs,
         };
 
-        write_header(wtr, &header)?;
-        Ok(Writer::new())
+        write_header(&mut wtr, &header)?;
+        Ok(Writer::new(wtr))
     }
 }
 
@@ -75,16 +72,26 @@ impl Default for WriterBuilder {
 }
 
 // TODO: Customisability?
-pub struct Writer {}
+pub struct Writer<W: Write> {
+    wtr: W,
+}
 
-impl Writer {
-    fn new() -> Self {
-        Writer {  }
+impl<W: Write> Writer<W> {
+    fn new(wtr: W) -> Self {
+        Writer { wtr }
     }
 
-    pub fn finish(self, wtr: &mut impl Write) -> PResult<()> {
-        write_record(&mut *wtr, &Record::new_eos())?;
-        wtr.flush()?;
+    pub fn write<'a, C: Codec>(
+        &mut self,
+        handle: &mut WriterHandle<'a, C>,
+        value: C::Rec,
+    ) -> PResult<()> {
+        handle.write(&mut self.wtr, value)
+    }
+
+    pub fn finish(mut self) -> PResult<()> {
+        write_record(&mut self.wtr, &Record::new_eos())?;
+        self.wtr.flush()?;
         Ok(())
     }
 }
@@ -102,16 +109,16 @@ pub fn write_header(mut wtr: impl Write, header: &Header) -> PResult<()> {
                 wtr.write_u8(len as u8)?;
                 wtr.write_u16(codec.version)?;
                 wtr.write_all(codec.name.as_bytes())?;
-                wtr.write_null()?;
+                wtr.write_u8(0)?;
             } else {
                 return Err(PError::new_range(
                     codec.name.len() as u64,
                     CODEC_NAME_BOUNDS,
                 ));
             }
-        } else {
             // Length 0
-            wtr.write_null()?;
+        } else {
+            wtr.write_u8(0)?;
         }
     }
 
@@ -119,15 +126,15 @@ pub fn write_header(mut wtr: impl Write, header: &Header) -> PResult<()> {
 }
 
 pub fn write_record(mut wtr: impl Write, record: &Record) -> PResult<()> {
-    wtr.write_pv(record.codec_id)?;
+    wtr.write_pvarint(record.codec_id)?;
     if record.codec_id != CODEC_ID_EOS {
-        wtr.write_pv(record.type_id)?;
+        wtr.write_pvarint(record.type_id)?;
         if let Some(val) = &record.val {
-            wtr.write_pv(val.len() as u64)?;
+            wtr.write_pvarint(val.len() as u64)?;
             wtr.write_all(&val)?;
-            wtr.write_null()?;
+            wtr.write_u8(0)?;
         } else {
-            wtr.write_pv(0)?;
+            wtr.write_pvarint(0)?;
         }
     }
 
@@ -136,21 +143,21 @@ pub fn write_record(mut wtr: impl Write, record: &Record) -> PResult<()> {
 
 // TODO: Test!
 fn write_custom<'a, C: Codec>(
-    wtr: &'a mut impl Write,
-    handle: &'a mut WriterHandle<'a, C>,
+    wtr: &mut impl Write,
+    handle: &mut WriterHandle<'a, C>,
     value: C::Rec,
 ) -> PResult<()> {
     let (codec_id, codec) = handle.as_parts();
-    wtr.write_pv(codec_id)?;
+    wtr.write_pvarint(codec_id)?;
     if codec_id != CODEC_ID_EOS {
-        wtr.write_pv(codec.type_id(&value))?;
+        wtr.write_pvarint(codec.type_id(&value))?;
         let len = codec.size(&value);
         if len > 0 {
-            wtr.write_pv(len as u64)?;
+            wtr.write_pvarint(len as u64)?;
             codec.write_value(&mut *wtr, &value).unwrap(); // TODO: Need to return User Error + Parser Error (Fun!)
-            wtr.write_null()?;
+            wtr.write_u8(0)?;
         } else {
-            wtr.write_pv(0)?;
+            wtr.write_pvarint(0)?;
         }
     }
 
@@ -273,7 +280,7 @@ mod test {
         let mut wtr = Cursor::new(Vec::new());
         let input = 0x00;
         let output = [0x01];
-        wtr.write_pv(input).unwrap();
+        wtr.write_pvarint(input).unwrap();
         let result = wtr.into_inner();
         assert_eq!(result, output);
 
@@ -281,7 +288,7 @@ mod test {
         let mut wtr = Cursor::new(Vec::new());
         let input = u64::MAX;
         let output = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
-        wtr.write_pv(input).unwrap();
+        wtr.write_pvarint(input).unwrap();
         let result = wtr.into_inner();
         assert_eq!(result, output);
 
@@ -289,7 +296,7 @@ mod test {
         let mut wtr = Cursor::new(Vec::new());
         let input = 0x21;
         let output = [(0x21 << 1) | 0x01];
-        wtr.write_pv(input).unwrap();
+        wtr.write_pvarint(input).unwrap();
         let result = wtr.into_inner();
         assert_eq!(result, output);
 
@@ -297,7 +304,7 @@ mod test {
         let mut wtr = Cursor::new(Vec::new());
         let input = 0xFF;
         let output = [(0xFF << 2) | 0x02, 0x03];
-        wtr.write_pv(input).unwrap();
+        wtr.write_pvarint(input).unwrap();
         let result = wtr.into_inner();
         assert_eq!(result, output);
 
@@ -305,7 +312,7 @@ mod test {
         let mut wtr = Cursor::new(Vec::new());
         let input = 0xFFFFFFFFFFFFFA;
         let output = [0x80, 0xFA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
-        wtr.write_pv(input).unwrap();
+        wtr.write_pvarint(input).unwrap();
         let result = wtr.into_inner();
         assert_eq!(result, output);
     }
