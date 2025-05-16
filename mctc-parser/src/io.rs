@@ -303,3 +303,56 @@ impl<'a> DecodeExt<'a> for &'a [u8] {
         Ok((self.decode_checked::<T>()? == cmp).then_some(cmp))
     }
 }
+
+pub struct PVarint(u64);
+
+impl From<u64> for PVarint {
+    fn from(value: u64) -> Self {
+        PVarint(value)
+    }
+}
+
+impl From<PVarint> for u64 {
+    fn from(value: PVarint) -> Self {
+        value.0
+    }
+}
+
+impl PVarint {
+    pub fn get(&self) -> u64 {
+        self.0
+    }
+}
+
+impl<'a> FromByteSlice<'a> for PVarint {
+    fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
+        let mut input = input;
+        let tag = input.decode::<u8>()?;
+        let len = tag.trailing_zeros() as usize;
+        let data_slice = input.decode_len::<&[u8]>(len)?;
+
+        let mut data = [0; 8];
+        data.copy_from_slice(data_slice);
+        let data = u64::from_le_bytes(data);
+        let out = if len < 7 {
+            // Catch tag w/data (0bXXXXXXX1...0bX100000)
+            let remainder = tag >> (len + 1); // Remove guard bit
+            (data << (7 - len)) + remainder as u64
+        } else {
+            // Catch tag w/o data (0b1000000 + 0b00000000)
+            data
+        };
+
+        Ok((input, PVarint(out)))
+    }
+
+    fn from_bytes_checked(input: &'a [u8]) -> FromByteResult<'a, Self> {
+        let tag = input.decode_peek_checked::<u8>()?;
+        let len = tag.trailing_zeros() as usize;
+        if input.len() >= len {
+            Self::from_bytes(input)
+        } else {
+            Err(DecodeError::Needed(len))
+        }
+    }
+}

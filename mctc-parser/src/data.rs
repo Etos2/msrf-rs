@@ -225,29 +225,37 @@ impl RecordMeta {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Record {
+pub trait RecordExt {
+    fn codec_id(&self) -> u64;
+    fn type_id(&self) -> u64;
+    fn len(&self) -> usize;
+    fn is_eos(&self) -> bool;
+    fn value(&self) -> Option<&[u8]>;
+}
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Record<'a> {
     pub(crate) codec_id: u64,
     pub(crate) type_id: u64,
-    pub(crate) val: Option<Box<[u8]>>,
+    pub(crate) val: Option<&'a [u8]>,
 }
 
-impl Record {
-    pub fn from_slice(codec_id: u64, type_id: u64, val: &[u8]) -> Self {
-        Record {
-            codec_id,
-            type_id,
-            val: Some(Box::from(val)),
-        }
-    }
-
-    pub fn from_box(codec_id: u64, type_id: u64, val: Box<[u8]>) -> Self {
+impl<'a> Record<'a> {
+    pub fn new(codec_id: u64, type_id: u64, val: &'a [u8]) -> Self {
         Record {
             codec_id,
             type_id,
             val: Some(val),
         }
     }
+
+    pub fn new_empty(codec_id: u64, type_id: u64) -> Self {
+        Record {
+            codec_id,
+            type_id,
+            val: None,
+        }
+    }
+
 
     pub fn new_eos() -> Self {
         Record {
@@ -256,32 +264,89 @@ impl Record {
             val: None,
         }
     }
+}
 
-    pub fn is_eos(&self) -> bool {
-        self.codec_id == CODEC_ID_EOS
-    }
-
-    pub fn codec_id(&self) -> u64 {
+impl<'a> RecordExt for Record<'a> {
+    fn codec_id(&self) -> u64 {
         self.codec_id
     }
 
-    pub fn type_id(&self) -> u64 {
+    fn type_id(&self) -> u64 {
         self.type_id
     }
 
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         self.val.as_ref().map(|data| data.len()).unwrap_or(0)
     }
 
-    pub fn value(&self) -> Option<&[u8]> {
+    fn is_eos(&self) -> bool {
+        self.codec_id == CODEC_ID_EOS
+    }
+
+    fn value(&self) -> Option<&[u8]> {
+        self.val.as_deref()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordOwned {
+    pub(crate) codec_id: u64,
+    pub(crate) type_id: u64,
+    pub(crate) val: Option<Box<[u8]>>,
+}
+
+impl RecordOwned {
+    pub fn new(codec_id: u64, type_id: u64, val: &[u8]) -> Self {
+        RecordOwned {
+            codec_id,
+            type_id,
+            val: Some(Box::from(val)),
+        }
+    }
+
+    pub fn new_from_box(codec_id: u64, type_id: u64, val: Box<[u8]>) -> Self {
+        RecordOwned {
+            codec_id,
+            type_id,
+            val: Some(val),
+        }
+    }
+
+    pub fn new_eos() -> Self {
+        RecordOwned {
+            codec_id: CODEC_ID_EOS,
+            type_id: 0,
+            val: None,
+        }
+    }
+}
+
+impl RecordExt for RecordOwned {
+    fn codec_id(&self) -> u64 {
+        self.codec_id
+    }
+
+    fn type_id(&self) -> u64 {
+        self.type_id
+    }
+
+    fn len(&self) -> usize {
+        self.val.as_ref().map(|data| data.len()).unwrap_or(0)
+    }
+
+    fn is_eos(&self) -> bool {
+        self.codec_id == CODEC_ID_EOS
+    }
+
+    fn value(&self) -> Option<&[u8]> {
         self.val.as_deref()
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::util::AsciiCharExt;
     use super::*;
+    use crate::util::AsciiCharExt;
 
     fn header_from_raw_table<S>(names: &[Option<S>]) -> Header
     where

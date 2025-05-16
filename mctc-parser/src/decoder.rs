@@ -1,9 +1,9 @@
 use crate::{
-    data::{CodecEntry, CodecTable, Header}, error::DecodeError, io::{
-        DecodeExt, FromByteResult, FromByteSlice,
-    }, MAGIC_BYTES
+    data::{CodecEntry, CodecTable, Header, Record, RecordOwned},
+    error::DecodeError,
+    io::{DecodeExt, FromByteResult, FromByteSlice, PVarint},
+    MAGIC_BYTES,
 };
-
 
 // TODO: Move into lib.rs? (make decode.rs internal decoding logic)
 #[derive(Debug)]
@@ -75,12 +75,38 @@ impl<'a> FromByteSlice<'a> for Option<CodecEntry> {
     }
 }
 
+impl<'a> FromByteSlice<'a> for Record<'a> {
+    fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
+        let mut input = input;
+        let codec_id = input.decode::<PVarint>()?.into();
+        if codec_id != u64::MAX {
+            let type_id = input.decode::<PVarint>()?.into();
+            let length = input.decode::<PVarint>()?.get() as usize;
+            if length != 0 {
+                let val = input.decode_len::<&[u8]>(length - 1)?;
+                let _guard = input
+                    .decode_assert::<u8>(0)?
+                    .ok_or(DecodeError::ExpectedGuard)?;
+                Ok((input, Record::new(codec_id, type_id, val)))
+            } else {
+                Ok((input, Record::new_empty(codec_id, type_id)))
+            }
+        } else {
+            Ok((input, Record::new_eos()))
+        }
+    }
+
+    fn from_bytes_checked(input: &'a [u8]) -> FromByteResult<'a, Self> {
+        todo!()
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use std::ascii::Char as AsciiChar;
+    use super::*;
     use crate::data::HeaderFlags;
     use crate::util::AsciiCharExt;
-    use super::*;
+    use std::ascii::Char as AsciiChar;
 
     #[test]
     fn decode_header() {
@@ -90,16 +116,16 @@ mod test {
         data.extend_from_slice(&43_u32.to_le_bytes()); // Length
         data.extend_from_slice(&0_u16.to_le_bytes()); // Version
         data.extend_from_slice(&0_u16.to_le_bytes()); // Flags
-        // Codec Table
+                                                      // Codec Table
         data.extend_from_slice(&3_u16.to_le_bytes()); // Codec Entries
-        // Codec Entry 1
+                                                      // Codec Entry 1
         data.extend_from_slice(&6_u8.to_le_bytes()); // Length
         data.extend_from_slice(&1_u16.to_le_bytes()); // Version
         data.extend_from_slice(b"TEST"); // Name
         data.extend_from_slice(&0_u8.to_le_bytes()); // Guard
-        // Codec Entry 2 (empty)
+                                                     // Codec Entry 2 (empty)
         data.extend_from_slice(&0_u8.to_le_bytes()); // Length
-        // Codec Entry 3
+                                                     // Codec Entry 3
         data.extend_from_slice(&26_u8.to_le_bytes()); // Length
         data.extend_from_slice(&(u16::MAX).to_le_bytes()); // Version
         data.extend_from_slice(b"SomeLongStringThatIsLong"); // Name
