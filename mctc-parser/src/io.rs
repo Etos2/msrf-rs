@@ -206,25 +206,52 @@ where
 
 // TODO: Rewrite to take mut and replace "self" with "rem" (allows `let val = src.decode::<T>()?;`)
 pub trait DecodeExt2<'a> {
-    fn decode<T: FromByteSlice<'a>>(&mut self) -> DecodeResult<T>;
-    fn decode_len<T: FromByteSlice<'a> + FromByteSliceBounded<'a>>(
-        &mut self,
-        len: usize,
-    ) -> DecodeResult<T>;
-    fn decode_assert<T: FromByteSlice<'a> + PartialEq>(
-        &mut self,
-        cmp: T,
-    ) -> DecodeResult<Option<T>>;
+    fn decode<T>(&mut self) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a>;
+    fn decode_checked<T>(&mut self) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a>;
+    fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a> + FromByteSliceBounded<'a>;
+    fn decode_len_checked<T>(&mut self, len: usize) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a> + FromByteSliceBounded<'a>;
+    fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
+    where
+        T: FromByteSlice<'a> + PartialEq;
+    fn decode_assert_checked<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
+    where
+        T: FromByteSlice<'a> + PartialEq;
 }
 
 impl<'a> DecodeExt2<'a> for &'a [u8] {
-    fn decode<T: FromByteSlice<'a>>(&mut self) -> DecodeResult<T> {
+    fn decode<T>(&mut self) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a>,
+    {
+        let (rem, out) = T::from_bytes(self)?;
+        *self = rem;
+        Ok(out)
+    }
+
+    fn decode_checked<T: FromByteSlice<'a>>(&mut self) -> DecodeResult<T> {
         let (rem, out) = T::from_bytes_checked(self)?;
         *self = rem;
         Ok(out)
     }
 
-    fn decode_len<T: FromByteSlice<'a> + FromByteSliceBounded<'a>>(
+    fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a> + FromByteSliceBounded<'a>,
+    {
+        let (rem, out) = T::from_bytes_bounded(self, len)?;
+        *self = rem;
+        Ok(out)
+    }
+
+    fn decode_len_checked<T: FromByteSlice<'a> + FromByteSliceBounded<'a>>(
         &mut self,
         len: usize,
     ) -> DecodeResult<T> {
@@ -233,11 +260,18 @@ impl<'a> DecodeExt2<'a> for &'a [u8] {
         Ok(out)
     }
 
-    fn decode_assert<T: FromByteSlice<'a> + PartialEq>(
+    fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
+    where
+        T: FromByteSlice<'a> + PartialEq,
+    {
+        Ok((self.decode::<T>()? == cmp).then_some(cmp))
+    }
+
+    fn decode_assert_checked<T: FromByteSlice<'a> + PartialEq>(
         &mut self,
         cmp: T,
     ) -> DecodeResult<Option<T>> {
-        Ok((self.decode::<T>()? == cmp).then_some(cmp))
+        Ok((self.decode_checked::<T>()? == cmp).then_some(cmp))
     }
 }
 

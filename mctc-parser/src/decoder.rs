@@ -199,7 +199,6 @@ impl Decodable for Option<CodecEntry> {
 }
 
 impl<'a> FromByteSlice<'a> for CodecEntry {
-    // TODO: Uses functions w/ bound checks (despite bound being checked)
     fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
         let mut input = input;
         let length = input.decode::<u8>()? as usize;
