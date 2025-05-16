@@ -1,3 +1,5 @@
+use std::{error::Error, fmt::Display};
+
 /// Trait for decoding values into slices.
 pub trait Encodable {
     /// Length of ```Self``` when encoded.
@@ -12,28 +14,6 @@ pub trait Encodable {
     /// Returns ```None``` if ```dst.len() != Self::encode_len()```
     fn encode_checked(&self, dst: &mut [u8]) -> Option<()> {
         (dst.len() == self.len_needed()).then(|| self.encode_into(dst))
-    }
-}
-
-// TODO: Error handling (validity)
-/// Trait for decoding values from slices.
-pub trait Decodable
-where
-    Self: Sized,
-{
-    /// Length of slice needed to decode ```Self```.
-    /// None if length cannot yet be determined.
-    fn bytes_needed(src: &[u8]) -> Option<usize>;
-    /// Decode Self from slice.
-    ///
-    /// # Panics
-    /// Will panic if slice is not the same length as ```Self::decode_len(src)```
-    fn decode_from(src: &[u8]) -> Self;
-    /// Decode ```Self``` from slice.
-    ///
-    /// Returns ```None``` if ```src.len() != Self::decode_len(src)```
-    fn decode_checked(src: &[u8]) -> Option<Self> {
-        (src.len() == Self::bytes_needed(src)?).then(|| Self::decode_from(src))
     }
 }
 
@@ -58,28 +38,6 @@ impl<T: Encodable> EncodeExt<T> for &mut [u8] {
     }
 }
 
-// TODO: differentiate non-checked and checked?
-pub trait DecodeExt<T: Decodable> {
-    fn read_decode(&mut self) -> Option<T>;
-    fn read_decode_checked(&mut self) -> Option<T>;
-}
-
-impl<T: Decodable> DecodeExt<T> for &[u8] {
-    fn read_decode(&mut self) -> Option<T> {
-        let len = T::bytes_needed(self)?;
-        let (a, b) = std::mem::take(self).split_at(len);
-        *self = b;
-        Some(T::decode_from(a))
-    }
-
-    fn read_decode_checked(&mut self) -> Option<T> {
-        let len = T::bytes_needed(self)?;
-        let (a, b) = std::mem::take(self).split_at_checked(len)?;
-        *self = b;
-        Some(T::decode_from(a))
-    }
-}
-
 macro_rules! encode_decode_impl {
     ($t:ident) => {
         impl Encodable for $t {
@@ -90,17 +48,6 @@ macro_rules! encode_decode_impl {
             fn encode_into(&self, dst: &mut [u8]) {
                 assert_eq!(dst.len(), self.len_needed());
                 dst.copy_from_slice(&self.to_le_bytes());
-            }
-        }
-
-        impl Decodable for $t {
-            fn bytes_needed(_src: &[u8]) -> Option<usize> {
-                Some(std::mem::size_of::<$t>())
-            }
-
-            fn decode_from(src: &[u8]) -> Self {
-                assert_eq!(src.len(), Self::bytes_needed(src).unwrap());
-                <$t>::from_le_bytes(src.try_into().unwrap())
             }
         }
     };
@@ -158,28 +105,31 @@ impl Encodable for &str {
     }
 }
 
-impl<const N: usize> Decodable for [u8; N] {
-    fn bytes_needed(_src: &[u8]) -> Option<usize> {
-        Some(std::mem::size_of::<[u8; N]>())
-    }
-
-    fn decode_from(src: &[u8]) -> Self {
-        src.try_into().unwrap()
-    }
-}
-
 // TODO: Finish API
 
 // TODO: Handle all cases (whatever they may be)
+#[derive(Debug)]
 pub enum DecodeError {
     Needed(usize),
-    InvalidGuard,
+    ExpectedGuard,
     Badness,
 }
 
 impl DecodeError {
     fn need<T>() -> DecodeError {
         DecodeError::Needed(size_of::<T>())
+    }
+}
+
+impl Error for DecodeError {}
+
+impl Display for DecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DecodeError::Needed(n) => writeln!(f, "need {n} more bytes"),
+            DecodeError::ExpectedGuard => writeln!(f, "expected guard"),
+            DecodeError::Badness => writeln!(f, "bad!"),
+        }
     }
 }
 
@@ -202,77 +152,6 @@ where
 {
     fn from_bytes_bounded(input: &'a [u8], len: usize) -> FromByteResult<'a, Self>;
     fn from_bytes_bounded_checked(input: &'a [u8], len: usize) -> FromByteResult<'a, Self>;
-}
-
-// TODO: Rewrite to take mut and replace "self" with "rem" (allows `let val = src.decode::<T>()?;`)
-pub trait DecodeExt2<'a> {
-    fn decode<T>(&mut self) -> DecodeResult<T>
-    where
-        T: FromByteSlice<'a>;
-    fn decode_checked<T>(&mut self) -> DecodeResult<T>
-    where
-        T: FromByteSlice<'a>;
-    fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
-    where
-        T: FromByteSlice<'a> + FromByteSliceBounded<'a>;
-    fn decode_len_checked<T>(&mut self, len: usize) -> DecodeResult<T>
-    where
-        T: FromByteSlice<'a> + FromByteSliceBounded<'a>;
-    fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
-    where
-        T: FromByteSlice<'a> + PartialEq;
-    fn decode_assert_checked<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
-    where
-        T: FromByteSlice<'a> + PartialEq;
-}
-
-impl<'a> DecodeExt2<'a> for &'a [u8] {
-    fn decode<T>(&mut self) -> DecodeResult<T>
-    where
-        T: FromByteSlice<'a>,
-    {
-        let (rem, out) = T::from_bytes(self)?;
-        *self = rem;
-        Ok(out)
-    }
-
-    fn decode_checked<T: FromByteSlice<'a>>(&mut self) -> DecodeResult<T> {
-        let (rem, out) = T::from_bytes_checked(self)?;
-        *self = rem;
-        Ok(out)
-    }
-
-    fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
-    where
-        T: FromByteSlice<'a> + FromByteSliceBounded<'a>,
-    {
-        let (rem, out) = T::from_bytes_bounded(self, len)?;
-        *self = rem;
-        Ok(out)
-    }
-
-    fn decode_len_checked<T: FromByteSlice<'a> + FromByteSliceBounded<'a>>(
-        &mut self,
-        len: usize,
-    ) -> DecodeResult<T> {
-        let (rem, out) = T::from_bytes_bounded_checked(self, len)?;
-        *self = rem;
-        Ok(out)
-    }
-
-    fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
-    where
-        T: FromByteSlice<'a> + PartialEq,
-    {
-        Ok((self.decode::<T>()? == cmp).then_some(cmp))
-    }
-
-    fn decode_assert_checked<T: FromByteSlice<'a> + PartialEq>(
-        &mut self,
-        cmp: T,
-    ) -> DecodeResult<Option<T>> {
-        Ok((self.decode_checked::<T>()? == cmp).then_some(cmp))
-    }
 }
 
 impl<'a, const N: usize> FromByteSlice<'a> for [u8; N] {
@@ -360,5 +239,94 @@ impl<'a> FromByteSliceBounded<'a> for &'a str {
             .split_at_checked(len)
             .ok_or(DecodeError::Needed(len))?;
         Ok((rem, str::from_utf8(out).map_err(|_| DecodeError::Badness)?))
+    }
+}
+
+pub trait DecodeExt<'a> {
+    fn decode<T>(&mut self) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a>;
+    fn decode_checked<T>(&mut self) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a>;
+    fn decode_peek<T>(&self) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a>;
+    fn decode_peek_checked<T>(&self) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a>;
+    fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a> + FromByteSliceBounded<'a>;
+    fn decode_len_checked<T>(&mut self, len: usize) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a> + FromByteSliceBounded<'a>;
+    fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
+    where
+        T: FromByteSlice<'a> + PartialEq;
+    fn decode_assert_checked<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
+    where
+        T: FromByteSlice<'a> + PartialEq;
+}
+
+impl<'a> DecodeExt<'a> for &'a [u8] {
+    fn decode<T>(&mut self) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a>,
+    {
+        let (rem, out) = T::from_bytes(self)?;
+        *self = rem;
+        Ok(out)
+    }
+
+    fn decode_checked<T: FromByteSlice<'a>>(&mut self) -> DecodeResult<T> {
+        let (rem, out) = T::from_bytes_checked(self)?;
+        *self = rem;
+        Ok(out)
+    }
+
+    fn decode_peek<T>(&self) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a>,
+    {
+        let (_, out) = T::from_bytes(self)?;
+        Ok(out)
+    }
+
+    fn decode_peek_checked<T: FromByteSlice<'a>>(&self) -> DecodeResult<T> {
+        let (_, out) = T::from_bytes_checked(self)?;
+        Ok(out)
+    }
+
+    fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
+    where
+        T: FromByteSlice<'a> + FromByteSliceBounded<'a>,
+    {
+        let (rem, out) = T::from_bytes_bounded(self, len)?;
+        *self = rem;
+        Ok(out)
+    }
+
+    fn decode_len_checked<T: FromByteSlice<'a> + FromByteSliceBounded<'a>>(
+        &mut self,
+        len: usize,
+    ) -> DecodeResult<T> {
+        let (rem, out) = T::from_bytes_bounded_checked(self, len)?;
+        *self = rem;
+        Ok(out)
+    }
+
+    fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
+    where
+        T: FromByteSlice<'a> + PartialEq,
+    {
+        Ok((self.decode::<T>()? == cmp).then_some(cmp))
+    }
+
+    fn decode_assert_checked<T: FromByteSlice<'a> + PartialEq>(
+        &mut self,
+        cmp: T,
+    ) -> DecodeResult<Option<T>> {
+        Ok((self.decode_checked::<T>()? == cmp).then_some(cmp))
     }
 }

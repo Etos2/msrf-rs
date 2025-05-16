@@ -101,6 +101,10 @@ impl CodecTable {
             .filter_map(Option::as_ref)
             .any(|c| c.name == name)
     }
+
+    pub fn push(&mut self, entry: Option<CodecEntry>) {
+        self.0.push(entry);
+    }
 }
 
 impl From<Vec<Option<CodecEntry>>> for CodecTable {
