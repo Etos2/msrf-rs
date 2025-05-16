@@ -3,7 +3,7 @@ use std::io::Write;
 use crate::{
     data::{CodecTable, Header, HeaderFlags, Record},
     error::{PError, PResult},
-    io::WriteExt,
+    io_old::WriteExt,
     Codec, Options, CODEC_ID_EOS, CODEC_NAME_BOUNDS, CURRENT_VERSION, MAGIC_BYTES,
 };
 

@@ -1,11 +1,12 @@
+use ascii::{AsciiString, IntoAsciiString};
 use bitflags::bitflags;
 
-use crate::{Codec, CODEC_ID_EOS, CURRENT_VERSION};
+use crate::{error::MctcParseError, Codec, CODEC_ID_EOS, CURRENT_VERSION, MAGIC_BYTES};
 
 // TODO: Use ID + CodecEntry pairing (compared to existing (Index = ID + CodecEntry Pairing)
 // Codecs are stored in a "sparse" vec
 #[derive(Debug, Clone, PartialEq)]
-pub struct CodecTable(Vec<Option<CodecEntry>>);
+pub struct CodecTable(pub(crate) Vec<Option<CodecEntry>>);
 
 // TODO: Rewrite API to passively consider sparse CodecEntries in a non-intrusive manner
 // TODO: Read API to find existing Codecs to determine if they are needed for reading
@@ -15,15 +16,19 @@ impl CodecTable {
         Self::default()
     }
 
+    pub(crate) fn new_from(raw: Vec<Option<CodecEntry>>) -> Self {
+        Self(raw)
+    }
+
     // TODO: Better ID solution?
     pub fn register<C: Codec>(&mut self) -> Option<u64> {
-        let entry = CodecEntry::new(C::VERSION, C::NAME);
+        let entry = CodecEntry::new_from_ascii(C::VERSION, C::NAME);
         self.register_impl(entry)
     }
 
     #[inline]
     fn register_impl(&mut self, entry: CodecEntry) -> Option<u64> {
-        if !self.contains_name(&entry.name) {
+        if !self.contains_name(&entry.name.as_str()) {
             match self.find_free() {
                 Some(index) => {
                     self.0[index] = Some(entry);
@@ -76,15 +81,16 @@ impl CodecTable {
         self.0.as_ref()
     }
 
+    pub fn into_inner(self) -> Vec<Option<CodecEntry>> {
+        self.0
+    }
+
     #[inline]
     fn find_free(&self) -> Option<usize> {
-        self.0
-            .iter()
-            .enumerate()
-            .find_map(|(i, c)| match c {
-                Some(_) => None,
-                None => Some(i),
-            })
+        self.0.iter().enumerate().find_map(|(i, c)| match c {
+            Some(_) => None,
+            None => Some(i),
+        })
     }
 
     // TODO: Binary search? Explore how this works with sparse vec
@@ -113,11 +119,18 @@ impl Default for CodecTable {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodecEntry {
     pub(crate) version: u16,
-    pub(crate) name: String,
+    pub(crate) name: AsciiString,
 }
 
 impl CodecEntry {
     pub fn new(version: u16, name: impl Into<String>) -> CodecEntry {
+        CodecEntry {
+            version,
+            name: name.into().into_ascii_string().unwrap(),
+        }
+    }
+
+    pub fn new_from_ascii(version: u16, name: impl Into<AsciiString>) -> CodecEntry {
         CodecEntry {
             version,
             name: name.into(),
@@ -129,7 +142,7 @@ impl CodecEntry {
     }
 
     pub fn name(&self) -> &str {
-        &self.name
+        self.name.as_str()
     }
 }
 
@@ -140,13 +153,19 @@ bitflags! {
     }
 }
 
+impl HeaderFlags {
+    pub fn into_inner(self) -> u16 {
+        self.bits()
+    }
+}
+
 impl From<u16> for HeaderFlags {
     fn from(val: u16) -> Self {
         HeaderFlags(val.into())
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct Header {
     pub(crate) version: u16,
     pub(crate) flags: HeaderFlags,
@@ -164,16 +183,6 @@ impl Header {
 
     pub fn flags(&self) -> HeaderFlags {
         self.flags
-    }
-}
-
-impl Default for Header {
-    fn default() -> Self {
-        Self {
-            version: CURRENT_VERSION,
-            flags: Default::default(),
-            codec_table: Default::default(),
-        }
     }
 }
 
@@ -266,6 +275,7 @@ impl Record {
 #[cfg(test)]
 mod test {
     use super::*;
+    use ascii::IntoAsciiString;
 
     fn header_from_raw_table<S>(names: &[Option<S>]) -> Header
     where
@@ -274,33 +284,39 @@ mod test {
         Header {
             version: 0,
             flags: HeaderFlags::empty(),
-            codec_table: CodecTable(names
-                .iter()
-                .cloned()
-                .map(|opt_name| {
-                    opt_name.map(|name| CodecEntry {
-                        version: 0,
-                        name: name.into(),
+            codec_table: CodecTable(
+                names
+                    .iter()
+                    .cloned()
+                    .map(|opt_name| {
+                        opt_name.map(|name| CodecEntry {
+                            version: 0,
+                            name: name.into().into_ascii_string().unwrap(),
+                        })
                     })
-                })
-                .collect()),
+                    .collect(),
+            ),
         }
     }
 
     #[test]
     fn test_header_register() {
         let mut header = header_from_raw_table(&[Some("test_0"), Some("test_1"), Some("test_2")]);
-        assert!(header.codec_table
+        assert!(header
+            .codec_table
             .register_impl(CodecEntry::new(0, "test_0"))
             .is_none());
-        assert!(header.codec_table
+        assert!(header
+            .codec_table
             .register_impl(CodecEntry::new(0, "test_1"))
             .is_none());
-        assert!(header.codec_table
+        assert!(header
+            .codec_table
             .register_impl(CodecEntry::new(0, "test_2"))
             .is_none());
 
-        header.codec_table
+        header
+            .codec_table
             .register_impl(CodecEntry::new(0, "test_3"))
             .unwrap();
 
@@ -319,23 +335,29 @@ mod test {
     fn test_header_register_fragmented() {
         let mut header =
             header_from_raw_table(&[Some("test_0"), Some("test_1"), None, None, Some("test_4")]);
-        assert!(header.codec_table
+        assert!(header
+            .codec_table
             .register_impl(CodecEntry::new(0, "test_0"))
             .is_none());
-        assert!(header.codec_table
+        assert!(header
+            .codec_table
             .register_impl(CodecEntry::new(0, "test_1"))
             .is_none());
-        assert!(header.codec_table
+        assert!(header
+            .codec_table
             .register_impl(CodecEntry::new(0, "test_4"))
             .is_none());
 
-        header.codec_table
+        header
+            .codec_table
             .register_impl(CodecEntry::new(0, "test_2"))
             .unwrap();
-        header.codec_table
+        header
+            .codec_table
             .register_impl(CodecEntry::new(0, "test_3"))
             .unwrap();
-        header.codec_table
+        header
+            .codec_table
             .register_impl(CodecEntry::new(0, "test_5"))
             .unwrap();
 

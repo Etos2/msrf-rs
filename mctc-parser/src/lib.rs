@@ -4,16 +4,19 @@ use std::{
     ops::RangeInclusive,
 };
 
+use ascii::AsciiStr;
 use data::RecordMeta;
 
 pub mod data;
+pub mod decoder;
+pub mod encoder;
 pub mod error;
 #[cfg(feature = "io")]
 pub mod io;
 #[cfg(not(feature = "io"))]
 mod io;
-pub mod reader;
-pub mod writer;
+// pub mod reader;
+// pub mod writer;
 
 const CURRENT_VERSION: u16 = 0;
 const MAGIC_BYTES: [u8; 4] = *b"MCTC";
@@ -35,18 +38,21 @@ pub trait RecordImpl {
     fn length(&self) -> usize;
 }
 
+// TODO: Isolate API from IO (remove impl Write)
 pub trait WriteRecord<E: Error>: RecordImpl {
     fn write_into(&self, wtr: impl Write) -> Result<(), E>;
 }
 
+// TODO: Isolate API from IO (remove impl Read)
 pub trait ReadRecord<E: Error>: RecordImpl {
     fn read_from(rdr: impl Read, meta: RecordMeta) -> Result<Self, E>
     where
         Self: Sized;
 }
 
+// TODO: Isolate API from IO (remove impl Read + Write)
 pub trait Codec {
-    const NAME: &'static str;
+    const NAME: &'static AsciiStr;
     const VERSION: u16;
     type Err: Error;
     type Rec;

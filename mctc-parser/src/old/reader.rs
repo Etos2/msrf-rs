@@ -1,7 +1,7 @@
 use crate::{
     data::{CodecEntry, Header, Record, RecordMeta},
     error::{PError, PResult},
-    io::ReadExt,
+    io_old::ReadExt,
     Options, CODEC_ENTRY_LENGTH_BOUNDS, CODEC_ID_EOS, MAGIC_BYTES,
 };
 use std::io::Read;
@@ -142,7 +142,7 @@ mod test {
     use super::*;
     use crate::{
         data::{CodecEntry, CodecTable, HeaderFlags},
-        io::*,
+        io_old::*,
         MAGIC_BYTES,
     };
 

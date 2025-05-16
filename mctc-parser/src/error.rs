@@ -6,6 +6,11 @@ use std::{
     sync::Arc,
 };
 
+pub enum MctcParseError {
+    UnexpectedEos,
+    MismatchBytes { found: Vec<u8>, expected: Vec<u8> },
+}
+
 pub type PResult<T> = Result<T, PError>;
 
 #[derive(Debug, Clone)]
