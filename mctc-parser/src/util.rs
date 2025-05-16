@@ -1,11 +1,9 @@
 use std::ascii::Char as AsciiChar;
 
 fn to_ascii_slice(bytes: &[u8]) -> &[AsciiChar] {
-    assert_eq!(std::mem::size_of::<AsciiChar>(), std::mem::size_of::<u8>());
-    let slice = bytes.as_ref();
-    let len = slice.len();
     // SAFETY: AsciiChar is repr(u8)
-    unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const AsciiChar, len) }
+    assert_eq!(std::mem::size_of::<AsciiChar>(), std::mem::size_of::<u8>());
+    unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const AsciiChar, bytes.len()) }
 }
 
 fn slice_is_ascii(bytes: &[u8]) -> bool {

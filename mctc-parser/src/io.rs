@@ -1,4 +1,4 @@
-use std::{error::Error, fmt::Display};
+use crate::error::{DecodeError, DecodeResult};
 
 /// Trait for decoding values into slices.
 pub trait Encodable {
@@ -107,34 +107,7 @@ impl Encodable for &str {
 
 // TODO: Finish API
 
-// TODO: Handle all cases (whatever they may be)
-#[derive(Debug)]
-pub enum DecodeError {
-    Needed(usize),
-    ExpectedGuard,
-    Badness,
-}
-
-impl DecodeError {
-    fn need<T>() -> DecodeError {
-        DecodeError::Needed(size_of::<T>())
-    }
-}
-
-impl Error for DecodeError {}
-
-impl Display for DecodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DecodeError::Needed(n) => writeln!(f, "need {n} more bytes"),
-            DecodeError::ExpectedGuard => writeln!(f, "expected guard"),
-            DecodeError::Badness => writeln!(f, "bad!"),
-        }
-    }
-}
-
 pub type FromByteResult<'a, T> = Result<(&'a [u8], T), DecodeError>;
-pub type DecodeResult<T> = Result<T, DecodeError>;
 
 /// Trait for decoding values from slices.
 pub trait FromByteSlice<'a>

@@ -1,9 +1,7 @@
 use crate::{
-    data::{CodecEntry, CodecTable, Header, Record},
-    io::{
-        DecodeError, DecodeExt, FromByteResult, FromByteSlice,
-    },
-    MAGIC_BYTES,
+    data::{CodecEntry, CodecTable, Header}, error::DecodeError, io::{
+        DecodeExt, FromByteResult, FromByteSlice,
+    }, MAGIC_BYTES
 };
 
 

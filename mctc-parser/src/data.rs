@@ -3,7 +3,7 @@ use std::ascii::Char as AsciiChar;
 use bitflags::bitflags;
 
 use crate::util::AsciiCharExt;
-use crate::{error::MctcParseError, Codec, CODEC_ID_EOS, CURRENT_VERSION, MAGIC_BYTES};
+use crate::{Codec, CODEC_ID_EOS};
 
 // TODO: Use ID + CodecEntry pairing (compared to existing (Index = ID + CodecEntry Pairing)
 // Codecs are stored in a "sparse" vec

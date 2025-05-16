@@ -20,7 +20,6 @@ const CURRENT_VERSION: u16 = 0;
 const MAGIC_BYTES: [u8; 4] = *b"MCTC";
 const CODEC_ID_EOS: u64 = u64::MAX;
 const CODEC_NAME_BOUNDS: RangeInclusive<u64> = 4..=64;
-const CODEC_ENTRY_LENGTH_BOUNDS: RangeInclusive<u64> = 6..=66;
 
 // TODO: Impl options
 pub struct Options {}
