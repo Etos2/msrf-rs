@@ -1,9 +1,6 @@
-use std::ascii::Char as AsciiChar;
-
-use bitflags::bitflags;
-
-use crate::util::AsciiCharExt;
 use crate::{Codec, CODEC_ID_EOS};
+use bitflags::bitflags;
+use std::ascii::Char as AsciiChar;
 
 // TODO: Use ID + CodecEntry pairing (compared to existing (Index = ID + CodecEntry Pairing)
 // Codecs are stored in a "sparse" vec
@@ -20,7 +17,7 @@ impl CodecTable {
 
     // TODO: Better ID solution?
     pub fn register<C: Codec>(&mut self) -> Option<u64> {
-        let entry = CodecEntry::new_from_ascii(C::VERSION, C::NAME);
+        let entry = CodecEntry::new_ascii(C::VERSION, C::NAME);
         self.register_impl(entry)
     }
 
@@ -128,11 +125,11 @@ impl CodecEntry {
     pub fn new(version: u16, name: impl AsRef<str>) -> Option<CodecEntry> {
         Some(CodecEntry {
             version,
-            name: <[AsciiChar]>::new_checked(name.as_ref().as_bytes())?.to_owned(),
+            name: name.as_ref().as_ascii()?.to_owned(),
         })
     }
 
-    pub fn new_from_ascii(version: u16, name: impl AsRef<[AsciiChar]>) -> CodecEntry {
+    pub fn new_ascii(version: u16, name: impl AsRef<[AsciiChar]>) -> CodecEntry {
         CodecEntry {
             version,
             name: name.as_ref().to_owned(),
@@ -341,7 +338,6 @@ impl RecordExt for RecordOwned {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::util::AsciiCharExt;
 
     fn header_from_raw_table<S>(names: &[Option<S>]) -> Header
     where
@@ -357,8 +353,7 @@ mod test {
                     .map(|opt_name| {
                         opt_name.map(|name| CodecEntry {
                             version: 0,
-                            name: unsafe { <[AsciiChar]>::new(name.as_ref()) }
-                                .to_owned(),
+                            name: name.as_ref().as_ascii().unwrap().to_vec(),
                         })
                     })
                     .collect(),

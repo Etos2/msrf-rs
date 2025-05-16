@@ -51,7 +51,7 @@ impl<'a> FromByteSlice<'a> for Option<CodecEntry> {
                     .decode_assert::<u8>(0)?
                     .ok_or(DecodeError::ExpectedGuard)?;
 
-                Ok((input, Some(CodecEntry::new_from_ascii(version, name))))
+                Ok((input, Some(CodecEntry::new_ascii(version, name))))
             }
         }
     }
@@ -83,8 +83,6 @@ impl<'a> FromByteSlice<'a> for Record<'a> {
 mod test {
     use super::*;
     use crate::data::HeaderFlags;
-    use crate::util::AsciiCharExt;
-    use std::ascii::Char as AsciiChar;
 
     #[test]
     fn decode_header() {
@@ -121,15 +119,12 @@ mod test {
                 codec_table: CodecTable::from(vec![
                     Some(CodecEntry {
                         version: 1,
-                        name: unsafe { <[AsciiChar]>::new(b"TEST") }.to_owned(),
+                        name: b"TEST".as_ascii().unwrap().to_vec(),
                     }),
                     None,
                     Some(CodecEntry {
                         version: u16::MAX,
-                        name: unsafe {
-                            <[AsciiChar]>::new(b"SomeLongStringThatIsLong")
-                        }
-                        .to_owned(),
+                        name: b"SomeLongStringThatIsLong".as_ascii().unwrap().to_vec(),
                     })
                 ])
             }

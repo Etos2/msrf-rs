@@ -1,5 +1,4 @@
 use crate::error::{DecodeError, DecodeResult};
-use crate::util::AsciiCharExt;
 use std::ascii::Char as AsciiChar;
 
 /// Trait for decoding values into slices.
@@ -172,10 +171,7 @@ impl<'a> FromByteSliceBounded<'a> for &'a [AsciiChar] {}
 
 impl<'a> FromByteSlice<'a> for &'a [AsciiChar] {
     fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
-        Ok((
-            &[],
-            <[AsciiChar]>::new_checked(input).ok_or(DecodeError::Badness)?,
-        ))
+        Ok((&[], input.as_ascii().ok_or(DecodeError::Badness)?))
     }
 }
 
