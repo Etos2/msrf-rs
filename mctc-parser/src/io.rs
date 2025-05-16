@@ -1,4 +1,6 @@
 use crate::error::{DecodeError, DecodeResult};
+use crate::util::AsciiCharExt;
+use std::ascii::Char as AsciiChar;
 
 /// Trait for decoding values into slices.
 pub trait Encodable {
@@ -122,7 +124,13 @@ pub trait FromByteSliceBounded<'a>: FromByteSlice<'a>
 where
     Self: Sized,
 {
-    fn from_bytes_bounded(input: &'a [u8], len: usize) -> FromByteResult<'a, Self>;
+    fn from_bytes_bounded(input: &'a [u8], len: usize) -> FromByteResult<'a, Self> {
+        let (out, rem) = input
+            .split_at_checked(len)
+            .ok_or(DecodeError::Needed(len))?;
+        let (_, val) = Self::from_bytes(out)?;
+        Ok((rem, val))
+    }
 }
 
 impl<'a, const N: usize> FromByteSlice<'a> for [u8; N] {
@@ -152,44 +160,27 @@ from_bytes_impl!(i16);
 from_bytes_impl!(i32);
 from_bytes_impl!(i64);
 
+impl<'a> FromByteSliceBounded<'a> for &'a [u8] {}
+
 impl<'a> FromByteSlice<'a> for &'a [u8] {
     fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
-        Ok((input, &[]))
+        Ok((&[], input))
     }
 }
 
-impl<'a> FromByteSliceBounded<'a> for &'a [u8] {
-    fn from_bytes_bounded(input: &'a [u8], len: usize) -> FromByteResult<'a, Self> {
-        let (out, rem) = input
-            .split_at_checked(len)
-            .ok_or(DecodeError::Needed(len))?;
-        Ok((out, rem))
-    }
-}
+impl<'a> FromByteSliceBounded<'a> for &'a [AsciiChar] {}
 
-impl<'a> FromByteSlice<'a> for &'a str {
+impl<'a> FromByteSlice<'a> for &'a [AsciiChar] {
     fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
         Ok((
             &[],
-            str::from_utf8(input).map_err(|_| DecodeError::Badness)?,
+            <[AsciiChar]>::new_checked(input).ok_or(DecodeError::Badness)?,
         ))
-    }
-}
-
-impl<'a> FromByteSliceBounded<'a> for &'a str {
-    fn from_bytes_bounded(input: &'a [u8], len: usize) -> FromByteResult<'a, Self> {
-        let (out, rem) = input
-            .split_at_checked(len)
-            .ok_or(DecodeError::Needed(len))?;
-        Ok((rem, str::from_utf8(out).map_err(|_| DecodeError::Badness)?))
     }
 }
 
 pub trait DecodeExt<'a> {
     fn decode<T>(&mut self) -> DecodeResult<T>
-    where
-        T: FromByteSlice<'a>;
-    fn decode_peek<T>(&self) -> DecodeResult<T>
     where
         T: FromByteSlice<'a>;
     fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
@@ -207,14 +198,6 @@ impl<'a> DecodeExt<'a> for &'a [u8] {
     {
         let (rem, out) = T::from_bytes(self)?;
         *self = rem;
-        Ok(out)
-    }
-
-    fn decode_peek<T>(&self) -> DecodeResult<T>
-    where
-        T: FromByteSlice<'a>,
-    {
-        let (_, out) = T::from_bytes(self)?;
         Ok(out)
     }
 
@@ -273,7 +256,7 @@ impl<'a> FromByteSlice<'a> for PVarint {
             // Catch tag w/o data (0b1000000 + 0b00000000)
             data
         };
- 
+
         Ok((input, PVarint(out)))
     }
 }

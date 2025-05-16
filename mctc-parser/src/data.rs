@@ -18,10 +18,6 @@ impl CodecTable {
         Self::default()
     }
 
-    pub(crate) fn new_from(raw: Vec<Option<CodecEntry>>) -> Self {
-        Self(raw)
-    }
-
     // TODO: Better ID solution?
     pub fn register<C: Codec>(&mut self) -> Option<u64> {
         let entry = CodecEntry::new_from_ascii(C::VERSION, C::NAME);
@@ -129,11 +125,11 @@ pub struct CodecEntry {
 }
 
 impl CodecEntry {
-    pub fn new(version: u16, name: impl AsRef<str>) -> CodecEntry {
-        CodecEntry {
+    pub fn new(version: u16, name: impl AsRef<str>) -> Option<CodecEntry> {
+        Some(CodecEntry {
             version,
-            name: <[AsciiChar]>::from_bytes_owned(name.as_ref().as_bytes()).unwrap(),
-        }
+            name: <[AsciiChar]>::new_checked(name.as_ref().as_bytes())?.to_owned(),
+        })
     }
 
     pub fn new_from_ascii(version: u16, name: impl AsRef<[AsciiChar]>) -> CodecEntry {
@@ -256,7 +252,6 @@ impl<'a> Record<'a> {
         }
     }
 
-
     pub fn new_eos() -> Self {
         Record {
             codec_id: CODEC_ID_EOS,
@@ -362,7 +357,8 @@ mod test {
                     .map(|opt_name| {
                         opt_name.map(|name| CodecEntry {
                             version: 0,
-                            name: <[AsciiChar]>::from_bytes_owned(name.as_ref()).unwrap(),
+                            name: unsafe { <[AsciiChar]>::new(name.as_ref()) }
+                                .to_owned(),
                         })
                     })
                     .collect(),
@@ -375,20 +371,20 @@ mod test {
         let mut header = header_from_raw_table(&[Some("test_0"), Some("test_1"), Some("test_2")]);
         assert!(header
             .codec_table
-            .register_impl(CodecEntry::new(0, "test_0"))
+            .register_impl(CodecEntry::new(0, "test_0").unwrap())
             .is_none());
         assert!(header
             .codec_table
-            .register_impl(CodecEntry::new(0, "test_1"))
+            .register_impl(CodecEntry::new(0, "test_1").unwrap())
             .is_none());
         assert!(header
             .codec_table
-            .register_impl(CodecEntry::new(0, "test_2"))
+            .register_impl(CodecEntry::new(0, "test_2").unwrap())
             .is_none());
 
         header
             .codec_table
-            .register_impl(CodecEntry::new(0, "test_3"))
+            .register_impl(CodecEntry::new(0, "test_3").unwrap())
             .unwrap();
 
         assert_eq!(
@@ -408,28 +404,28 @@ mod test {
             header_from_raw_table(&[Some("test_0"), Some("test_1"), None, None, Some("test_4")]);
         assert!(header
             .codec_table
-            .register_impl(CodecEntry::new(0, "test_0"))
+            .register_impl(CodecEntry::new(0, "test_0").unwrap())
             .is_none());
         assert!(header
             .codec_table
-            .register_impl(CodecEntry::new(0, "test_1"))
+            .register_impl(CodecEntry::new(0, "test_1").unwrap())
             .is_none());
         assert!(header
             .codec_table
-            .register_impl(CodecEntry::new(0, "test_4"))
+            .register_impl(CodecEntry::new(0, "test_4").unwrap())
             .is_none());
 
         header
             .codec_table
-            .register_impl(CodecEntry::new(0, "test_2"))
+            .register_impl(CodecEntry::new(0, "test_2").unwrap())
             .unwrap();
         header
             .codec_table
-            .register_impl(CodecEntry::new(0, "test_3"))
+            .register_impl(CodecEntry::new(0, "test_3").unwrap())
             .unwrap();
         header
             .codec_table
-            .register_impl(CodecEntry::new(0, "test_5"))
+            .register_impl(CodecEntry::new(0, "test_5").unwrap())
             .unwrap();
 
         assert_eq!(

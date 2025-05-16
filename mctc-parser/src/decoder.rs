@@ -1,9 +1,10 @@
 use crate::{
-    data::{CodecEntry, CodecTable, Header, Record, RecordOwned},
+    data::{CodecEntry, CodecTable, Header, Record},
     error::DecodeError,
     io::{DecodeExt, FromByteResult, FromByteSlice, PVarint},
     MAGIC_BYTES,
 };
+use std::ascii::Char as AsciiChar;
 
 // TODO: Move into lib.rs? (make decode.rs internal decoding logic)
 #[derive(Debug)]
@@ -45,12 +46,12 @@ impl<'a> FromByteSlice<'a> for Option<CodecEntry> {
             1..=2 => Err(DecodeError::Badness), // TODO: Enforce minimum name len? A name of 0 is useless for identifying which decoder to use
             3.. => {
                 let version = input.decode::<u16>()?;
-                let name = input.decode_len::<&str>(length - 2)?;
+                let name = input.decode_len::<&[AsciiChar]>(length - 2)?;
                 let _guard = input
                     .decode_assert::<u8>(0)?
                     .ok_or(DecodeError::ExpectedGuard)?;
 
-                Ok((input, Some(CodecEntry::new(version, name))))
+                Ok((input, Some(CodecEntry::new_from_ascii(version, name))))
             }
         }
     }
@@ -120,12 +121,15 @@ mod test {
                 codec_table: CodecTable::from(vec![
                     Some(CodecEntry {
                         version: 1,
-                        name: <[AsciiChar]>::from_bytes_owned(b"TEST").unwrap(),
+                        name: unsafe { <[AsciiChar]>::new(b"TEST") }.to_owned(),
                     }),
                     None,
                     Some(CodecEntry {
                         version: u16::MAX,
-                        name: <[AsciiChar]>::from_bytes_owned(b"SomeLongStringThatIsLong").unwrap(),
+                        name: unsafe {
+                            <[AsciiChar]>::new(b"SomeLongStringThatIsLong")
+                        }
+                        .to_owned(),
                     })
                 ])
             }

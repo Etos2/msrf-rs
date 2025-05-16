@@ -69,22 +69,22 @@ impl Encodable for CodecEntry {
 
 #[cfg(test)]
 mod test {
-    use std::ascii::Char as AsciiChar;
+    use super::*;
     use crate::data::HeaderFlags;
     use crate::util::AsciiCharExt;
-    use super::*;
+    use std::ascii::Char as AsciiChar;
 
     #[test]
     fn encode_header() {
-        let codec_table = CodecTable::new_from(vec![
+        let codec_table = CodecTable(vec![
             Some(CodecEntry {
                 version: 1,
-                name: <[AsciiChar]>::from_bytes_owned(b"Test").unwrap(),
+                name: <[AsciiChar]>::new(b"Test").to_owned(),
             }),
             None,
             Some(CodecEntry {
                 version: 2,
-                name: <[AsciiChar]>::from_bytes_owned(b"SomeLongStringThatIsLong").unwrap(),
+                name: <[AsciiChar]>::new(b"SomeLongStringThatIsLong").to_owned(),
             }),
         ]);
         let header = Header {
