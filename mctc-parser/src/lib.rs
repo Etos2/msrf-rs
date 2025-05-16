@@ -1,10 +1,9 @@
+#![feature(ascii_char)]
+
 use std::{
-    error::Error,
-    io::{Read, Write},
-    ops::RangeInclusive,
+    ascii, error::Error, io::{Read, Write}, ops::RangeInclusive
 };
 
-use ascii::AsciiStr;
 use data::RecordMeta;
 
 pub mod data;
@@ -15,8 +14,7 @@ pub mod error;
 pub mod io;
 #[cfg(not(feature = "io"))]
 mod io;
-// pub mod reader;
-// pub mod writer;
+mod util;
 
 const CURRENT_VERSION: u16 = 0;
 const MAGIC_BYTES: [u8; 4] = *b"MCTC";
@@ -51,8 +49,9 @@ pub trait ReadRecord<E: Error>: RecordImpl {
 }
 
 // TODO: Isolate API from IO (remove impl Read + Write)
+// TODO: Remove `ascii::Char` from pub api
 pub trait Codec {
-    const NAME: &'static AsciiStr;
+    const NAME: &'static [ascii::Char];
     const VERSION: u16;
     type Err: Error;
     type Rec;

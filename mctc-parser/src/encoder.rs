@@ -69,21 +69,22 @@ impl Encodable for CodecEntry {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::ascii::Char as AsciiChar;
     use crate::data::HeaderFlags;
-    use ascii::IntoAsciiString;
+    use crate::util::AsciiCharExt;
+    use super::*;
 
     #[test]
     fn encode_header() {
         let codec_table = CodecTable::new_from(vec![
             Some(CodecEntry {
                 version: 1,
-                name: "Test".into_ascii_string().unwrap(),
+                name: <[AsciiChar]>::from_bytes_owned(b"Test").unwrap(),
             }),
             None,
             Some(CodecEntry {
                 version: 2,
-                name: "SomeLongStringThatIsLong".into_ascii_string().unwrap(),
+                name: <[AsciiChar]>::from_bytes_owned(b"SomeLongStringThatIsLong").unwrap(),
             }),
         ]);
         let header = Header {
@@ -95,7 +96,8 @@ mod test {
         let codec_entries = header.codec_table.as_ref();
         let mut buf = [0; 51];
         let mut dst = &mut buf[..];
-        dst.write_encodable_checked(&header).expect("buffer too small");
+        dst.write_encodable_checked(&header)
+            .expect("buffer too small");
         assert_eq!(dst.len(), 0);
 
         // Header

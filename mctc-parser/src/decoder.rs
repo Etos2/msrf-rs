@@ -79,10 +79,9 @@ impl<'a> FromByteSlice<'a> for Option<CodecEntry> {
 
 #[cfg(test)]
 mod test {
-    use ascii::AsciiString;
-
+    use std::ascii::Char as AsciiChar;
     use crate::data::HeaderFlags;
-
+    use crate::util::AsciiCharExt;
     use super::*;
 
     #[test]
@@ -120,12 +119,12 @@ mod test {
                 codec_table: CodecTable::from(vec![
                     Some(CodecEntry {
                         version: 1,
-                        name: AsciiString::from_ascii("TEST").unwrap(),
+                        name: <[AsciiChar]>::from_bytes_owned(b"TEST").unwrap(),
                     }),
                     None,
                     Some(CodecEntry {
                         version: u16::MAX,
-                        name: AsciiString::from_ascii(b"SomeLongStringThatIsLong").unwrap(),
+                        name: <[AsciiChar]>::from_bytes_owned(b"SomeLongStringThatIsLong").unwrap(),
                     })
                 ])
             }

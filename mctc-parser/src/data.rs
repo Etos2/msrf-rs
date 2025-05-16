@@ -1,6 +1,8 @@
-use ascii::{AsciiString, IntoAsciiString};
+use std::ascii::Char as AsciiChar;
+
 use bitflags::bitflags;
 
+use crate::util::AsciiCharExt;
 use crate::{error::MctcParseError, Codec, CODEC_ID_EOS, CURRENT_VERSION, MAGIC_BYTES};
 
 // TODO: Use ID + CodecEntry pairing (compared to existing (Index = ID + CodecEntry Pairing)
@@ -28,7 +30,7 @@ impl CodecTable {
 
     #[inline]
     fn register_impl(&mut self, entry: CodecEntry) -> Option<u64> {
-        if !self.contains_name(&entry.name.as_str()) {
+        if !self.contains_name(&entry.name.as_ref()) {
             match self.find_free() {
                 Some(index) => {
                     self.0[index] = Some(entry);
@@ -95,7 +97,7 @@ impl CodecTable {
 
     // TODO: Binary search? Explore how this works with sparse vec
     #[inline]
-    fn contains_name(&self, name: &str) -> bool {
+    fn contains_name(&self, name: &[AsciiChar]) -> bool {
         self.0
             .iter()
             .filter_map(Option::as_ref)
@@ -123,21 +125,21 @@ impl Default for CodecTable {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodecEntry {
     pub(crate) version: u16,
-    pub(crate) name: AsciiString,
+    pub(crate) name: Vec<AsciiChar>,
 }
 
 impl CodecEntry {
-    pub fn new(version: u16, name: impl Into<String>) -> CodecEntry {
+    pub fn new(version: u16, name: impl AsRef<str>) -> CodecEntry {
         CodecEntry {
             version,
-            name: name.into().into_ascii_string().unwrap(),
+            name: <[AsciiChar]>::from_bytes_owned(name.as_ref().as_bytes()).unwrap(),
         }
     }
 
-    pub fn new_from_ascii(version: u16, name: impl Into<AsciiString>) -> CodecEntry {
+    pub fn new_from_ascii(version: u16, name: impl AsRef<[AsciiChar]>) -> CodecEntry {
         CodecEntry {
             version,
-            name: name.into(),
+            name: name.as_ref().to_owned(),
         }
     }
 
@@ -278,12 +280,12 @@ impl Record {
 
 #[cfg(test)]
 mod test {
+    use crate::util::AsciiCharExt;
     use super::*;
-    use ascii::IntoAsciiString;
 
     fn header_from_raw_table<S>(names: &[Option<S>]) -> Header
     where
-        S: Into<String> + Clone,
+        S: AsRef<[u8]> + Clone,
     {
         Header {
             version: 0,
@@ -295,7 +297,7 @@ mod test {
                     .map(|opt_name| {
                         opt_name.map(|name| CodecEntry {
                             version: 0,
-                            name: name.into().into_ascii_string().unwrap(),
+                            name: <[AsciiChar]>::from_bytes_owned(name.as_ref()).unwrap(),
                         })
                     })
                     .collect(),
