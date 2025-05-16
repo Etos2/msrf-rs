@@ -34,16 +34,6 @@ impl<'a> FromByteSlice<'a> for Header {
             },
         ))
     }
-
-    fn from_bytes_checked(input: &'a [u8]) -> FromByteResult<'a, Self> {
-        let length_slice = input.get(4..8).ok_or(DecodeError::Needed(8))?;
-        let needed = length_slice.decode_peek_checked::<u32>()? as usize;
-        if input.len() >= needed {
-            Self::from_bytes(input)
-        } else {
-            Err(DecodeError::Needed(needed))
-        }
-    }
 }
 
 impl<'a> FromByteSlice<'a> for Option<CodecEntry> {
@@ -62,15 +52,6 @@ impl<'a> FromByteSlice<'a> for Option<CodecEntry> {
 
                 Ok((input, Some(CodecEntry::new(version, name))))
             }
-        }
-    }
-
-    fn from_bytes_checked(input: &'a [u8]) -> FromByteResult<'a, Self> {
-        let needed = input.decode_peek_checked::<u8>()? as usize;
-        if input.len() >= needed {
-            Self::from_bytes(input)
-        } else {
-            Err(DecodeError::Needed(needed))
         }
     }
 }
@@ -94,10 +75,6 @@ impl<'a> FromByteSlice<'a> for Record<'a> {
         } else {
             Ok((input, Record::new_eos()))
         }
-    }
-
-    fn from_bytes_checked(input: &'a [u8]) -> FromByteResult<'a, Self> {
-        todo!()
     }
 }
 

@@ -115,7 +115,6 @@ where
     Self: Sized,
 {
     fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self>;
-    fn from_bytes_checked(input: &'a [u8]) -> FromByteResult<'a, Self>;
 }
 
 /// Trait for decoding values from slices.
@@ -124,16 +123,10 @@ where
     Self: Sized,
 {
     fn from_bytes_bounded(input: &'a [u8], len: usize) -> FromByteResult<'a, Self>;
-    fn from_bytes_bounded_checked(input: &'a [u8], len: usize) -> FromByteResult<'a, Self>;
 }
 
 impl<'a, const N: usize> FromByteSlice<'a> for [u8; N] {
     fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
-        let (out, rem) = input.split_at(N); // PANIC: Panics if N > input.len()
-        Ok((rem, out.try_into().unwrap())) // SAFETY: "out" is always length N
-    }
-
-    fn from_bytes_checked(input: &'a [u8]) -> FromByteResult<'a, Self> {
         let (out, rem) = input.split_at_checked(N).ok_or(DecodeError::Needed(N))?;
         Ok((rem, out.try_into().unwrap())) // SAFETY: "out" is always length N
     }
@@ -144,11 +137,6 @@ macro_rules! from_bytes_impl {
         impl<'a> FromByteSlice<'a> for $t {
             fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
                 <[u8; size_of::<$t>()]>::from_bytes(input)
-                    .map(|(rem, input)| (rem, $t::from_le_bytes(input)))
-            }
-
-            fn from_bytes_checked(input: &'a [u8]) -> FromByteResult<'a, Self> {
-                <[u8; size_of::<$t>()]>::from_bytes_checked(input)
                     .map(|(rem, input)| (rem, $t::from_le_bytes(input)))
             }
         }
@@ -168,19 +156,10 @@ impl<'a> FromByteSlice<'a> for &'a [u8] {
     fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
         Ok((input, &[]))
     }
-
-    fn from_bytes_checked(input: &'a [u8]) -> FromByteResult<'a, Self> {
-        Self::from_bytes(input)
-    }
 }
 
 impl<'a> FromByteSliceBounded<'a> for &'a [u8] {
     fn from_bytes_bounded(input: &'a [u8], len: usize) -> FromByteResult<'a, Self> {
-        let (out, rem) = input.split_at(len); // PANIC: Panics if len > input.len()
-        Ok((out, rem))
-    }
-
-    fn from_bytes_bounded_checked(input: &'a [u8], len: usize) -> FromByteResult<'a, Self> {
         let (out, rem) = input
             .split_at_checked(len)
             .ok_or(DecodeError::Needed(len))?;
@@ -190,10 +169,6 @@ impl<'a> FromByteSliceBounded<'a> for &'a [u8] {
 
 impl<'a> FromByteSlice<'a> for &'a str {
     fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
-        Ok((&[], str::from_utf8(input).unwrap())) // PANIC: Panics if input contains invalid UTF8
-    }
-
-    fn from_bytes_checked(input: &'a [u8]) -> FromByteResult<'a, Self> {
         Ok((
             &[],
             str::from_utf8(input).map_err(|_| DecodeError::Badness)?,
@@ -203,11 +178,6 @@ impl<'a> FromByteSlice<'a> for &'a str {
 
 impl<'a> FromByteSliceBounded<'a> for &'a str {
     fn from_bytes_bounded(input: &'a [u8], len: usize) -> FromByteResult<'a, Self> {
-        let (out, rem) = input.split_at(len); // PANIC: Panics if len > input.len()
-        Ok((rem, str::from_utf8(out).unwrap())) // PANIC: Panics if input contains invalid UTF8
-    }
-
-    fn from_bytes_bounded_checked(input: &'a [u8], len: usize) -> FromByteResult<'a, Self> {
         let (out, rem) = input
             .split_at_checked(len)
             .ok_or(DecodeError::Needed(len))?;
@@ -219,25 +189,13 @@ pub trait DecodeExt<'a> {
     fn decode<T>(&mut self) -> DecodeResult<T>
     where
         T: FromByteSlice<'a>;
-    fn decode_checked<T>(&mut self) -> DecodeResult<T>
-    where
-        T: FromByteSlice<'a>;
     fn decode_peek<T>(&self) -> DecodeResult<T>
-    where
-        T: FromByteSlice<'a>;
-    fn decode_peek_checked<T>(&self) -> DecodeResult<T>
     where
         T: FromByteSlice<'a>;
     fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
     where
         T: FromByteSlice<'a> + FromByteSliceBounded<'a>;
-    fn decode_len_checked<T>(&mut self, len: usize) -> DecodeResult<T>
-    where
-        T: FromByteSlice<'a> + FromByteSliceBounded<'a>;
     fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
-    where
-        T: FromByteSlice<'a> + PartialEq;
-    fn decode_assert_checked<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
     where
         T: FromByteSlice<'a> + PartialEq;
 }
@@ -252,22 +210,11 @@ impl<'a> DecodeExt<'a> for &'a [u8] {
         Ok(out)
     }
 
-    fn decode_checked<T: FromByteSlice<'a>>(&mut self) -> DecodeResult<T> {
-        let (rem, out) = T::from_bytes_checked(self)?;
-        *self = rem;
-        Ok(out)
-    }
-
     fn decode_peek<T>(&self) -> DecodeResult<T>
     where
         T: FromByteSlice<'a>,
     {
         let (_, out) = T::from_bytes(self)?;
-        Ok(out)
-    }
-
-    fn decode_peek_checked<T: FromByteSlice<'a>>(&self) -> DecodeResult<T> {
-        let (_, out) = T::from_bytes_checked(self)?;
         Ok(out)
     }
 
@@ -280,27 +227,11 @@ impl<'a> DecodeExt<'a> for &'a [u8] {
         Ok(out)
     }
 
-    fn decode_len_checked<T: FromByteSlice<'a> + FromByteSliceBounded<'a>>(
-        &mut self,
-        len: usize,
-    ) -> DecodeResult<T> {
-        let (rem, out) = T::from_bytes_bounded_checked(self, len)?;
-        *self = rem;
-        Ok(out)
-    }
-
     fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
     where
         T: FromByteSlice<'a> + PartialEq,
     {
         Ok((self.decode::<T>()? == cmp).then_some(cmp))
-    }
-
-    fn decode_assert_checked<T: FromByteSlice<'a> + PartialEq>(
-        &mut self,
-        cmp: T,
-    ) -> DecodeResult<Option<T>> {
-        Ok((self.decode_checked::<T>()? == cmp).then_some(cmp))
     }
 }
 
@@ -342,17 +273,7 @@ impl<'a> FromByteSlice<'a> for PVarint {
             // Catch tag w/o data (0b1000000 + 0b00000000)
             data
         };
-
+ 
         Ok((input, PVarint(out)))
-    }
-
-    fn from_bytes_checked(input: &'a [u8]) -> FromByteResult<'a, Self> {
-        let tag = input.decode_peek_checked::<u8>()?;
-        let len = tag.trailing_zeros() as usize;
-        if input.len() >= len {
-            Self::from_bytes(input)
-        } else {
-            Err(DecodeError::Needed(len))
-        }
     }
 }
