@@ -83,54 +83,19 @@ impl<'a> DecodeSlice<'a> for Record<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::data::HeaderFlags;
+    use crate::test;
 
     #[test]
     fn decode_header() {
-        let mut data = Vec::new();
-        // Header
-        data.extend_from_slice(&MAGIC_BYTES); // Magic bytes
-        data.extend_from_slice(&43_u32.to_le_bytes()); // Length
-        data.extend_from_slice(&0_u16.to_le_bytes()); // Version
-        data.extend_from_slice(&0_u16.to_le_bytes()); // Flags
-                                                      // Codec Table
-        data.extend_from_slice(&3_u16.to_le_bytes()); // Codec Entries
-                                                      // Codec Entry 1
-        data.extend_from_slice(&7_u8.to_le_bytes()); // Length
-        data.extend_from_slice(&1_u16.to_le_bytes()); // Version
-        data.extend_from_slice(b"TEST"); // Name
-        data.extend_from_slice(&0_u8.to_le_bytes()); // Guard
-                                                     // Codec Entry 2 (empty)
-        data.extend_from_slice(&0_u8.to_le_bytes()); // Length
-                                                     // Codec Entry 3
-        data.extend_from_slice(&27_u8.to_le_bytes()); // Length
-        data.extend_from_slice(&(u16::MAX).to_le_bytes()); // Version
-        data.extend_from_slice(b"SomeLongStringThatIsLong"); // Name
-        data.extend_from_slice(&0_u8.to_le_bytes()); // Guard
+        let header = test::ref_header();
+        let header_bytes = test::ref_header_bytes();
 
-        assert_eq!(data.len(), 51);
-        let mut data = data.as_slice();
-        let header = data.decode::<Header>().unwrap();
+        assert_eq!(header_bytes.len(), 51);
+        let mut data = header_bytes.as_slice();
+        let output = data.decode::<Header>().unwrap();
 
         // Verify decode
-        assert_eq!(
-            header,
-            Header {
-                version: 0,
-                flags: HeaderFlags::empty(),
-                codec_table: CodecTable::from(vec![
-                    Some(CodecEntry {
-                        version: 1,
-                        name: b"TEST".as_ascii().unwrap().to_vec(),
-                    }),
-                    None,
-                    Some(CodecEntry {
-                        version: u16::MAX,
-                        name: b"SomeLongStringThatIsLong".as_ascii().unwrap().to_vec(),
-                    })
-                ])
-            }
-        );
+        assert_eq!(header, output);
 
         // Verify all data is read
         assert_eq!(data.len(), 0);
