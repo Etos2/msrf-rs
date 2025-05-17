@@ -1,17 +1,18 @@
+use std::ascii::Char as AsciiChar;
+
 use crate::{
     data::{CodecEntry, CodecTable, Header, Record},
-    error::DecodeError,
-    io::{DecodeExt, FromByteResult, FromByteSlice, PVarint},
+    error::{DecodeError, DecodeResult},
+    io::{DecodeExt, DecodeSlice, PVarint},
     MAGIC_BYTES,
 };
-use std::ascii::Char as AsciiChar;
 
 // TODO: Move into lib.rs? (make decode.rs internal decoding logic)
 #[derive(Debug)]
 pub struct Decoder {}
 
-impl<'a> FromByteSlice<'a> for Header {
-    fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
+impl<'a> DecodeSlice<'a> for Header {
+    fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
         let mut input = input;
         let _magic_bytes = input
             .decode_assert::<[u8; 4]>(MAGIC_BYTES)?
@@ -37,8 +38,8 @@ impl<'a> FromByteSlice<'a> for Header {
     }
 }
 
-impl<'a> FromByteSlice<'a> for Option<CodecEntry> {
-    fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
+impl<'a> DecodeSlice<'a> for Option<CodecEntry> {
+    fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
         let mut input = input;
         let length = input.decode::<u8>()? as usize;
         match length {
@@ -46,7 +47,7 @@ impl<'a> FromByteSlice<'a> for Option<CodecEntry> {
             1..=2 => Err(DecodeError::Badness), // TODO: Enforce minimum name len? A name of 0 is useless for identifying which decoder to use
             3.. => {
                 let version = input.decode::<u16>()?;
-                let name = input.decode_len::<&[AsciiChar]>(length - 2)?;
+                let name = input.decode_len::<&[AsciiChar]>(length - 3)?;
                 let _guard = input
                     .decode_assert::<u8>(0)?
                     .ok_or(DecodeError::ExpectedGuard)?;
@@ -57,8 +58,8 @@ impl<'a> FromByteSlice<'a> for Option<CodecEntry> {
     }
 }
 
-impl<'a> FromByteSlice<'a> for Record<'a> {
-    fn from_bytes(input: &'a [u8]) -> FromByteResult<'a, Self> {
+impl<'a> DecodeSlice<'a> for Record<'a> {
+    fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
         let mut input = input;
         let codec_id = input.decode::<PVarint>()?.into();
         if codec_id != u64::MAX {
@@ -95,18 +96,19 @@ mod test {
                                                       // Codec Table
         data.extend_from_slice(&3_u16.to_le_bytes()); // Codec Entries
                                                       // Codec Entry 1
-        data.extend_from_slice(&6_u8.to_le_bytes()); // Length
+        data.extend_from_slice(&7_u8.to_le_bytes()); // Length
         data.extend_from_slice(&1_u16.to_le_bytes()); // Version
         data.extend_from_slice(b"TEST"); // Name
         data.extend_from_slice(&0_u8.to_le_bytes()); // Guard
                                                      // Codec Entry 2 (empty)
         data.extend_from_slice(&0_u8.to_le_bytes()); // Length
                                                      // Codec Entry 3
-        data.extend_from_slice(&26_u8.to_le_bytes()); // Length
+        data.extend_from_slice(&27_u8.to_le_bytes()); // Length
         data.extend_from_slice(&(u16::MAX).to_le_bytes()); // Version
         data.extend_from_slice(b"SomeLongStringThatIsLong"); // Name
         data.extend_from_slice(&0_u8.to_le_bytes()); // Guard
 
+        assert_eq!(data.len(), 51);
         let mut data = data.as_slice();
         let header = data.decode::<Header>().unwrap();
 

@@ -1,11 +1,10 @@
-use std::{
-    error::Error,
-    fmt::Display,
-};
+use std::{error::Error, fmt::Display};
 
-// TODO: Handle all cases (whatever they may be)
 pub type DecodeResult<T> = Result<T, DecodeError>;
+pub type EncodeResult<T> = Result<T, EncodeError>;
 
+// TODO: Merge with EncodeError?
+// TODO: Handle all cases (whatever they may be)
 #[derive(Debug)]
 pub enum DecodeError {
     Needed(usize),
@@ -29,4 +28,12 @@ impl Display for DecodeError {
             DecodeError::Badness => writeln!(f, "bad!"),
         }
     }
+}
+
+// TODO: Merge with DecodeError?
+// TODO: Handle all cases (whatever they may be)
+#[derive(Debug)]
+pub enum EncodeError {
+    Needed(usize),
+    Badness,
 }

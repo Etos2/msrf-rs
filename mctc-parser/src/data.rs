@@ -1,6 +1,8 @@
-use crate::{Codec, CODEC_ID_EOS};
-use bitflags::bitflags;
 use std::ascii::Char as AsciiChar;
+
+use bitflags::bitflags;
+
+use crate::{Codec, CODEC_ID_EOS};
 
 // TODO: Use ID + CodecEntry pairing (compared to existing (Index = ID + CodecEntry Pairing)
 // Codecs are stored in a "sparse" vec

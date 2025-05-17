@@ -37,15 +37,19 @@ fn bench_read_u64(c: &mut Criterion) {
     });
 
     let slice: &[u8] = data.as_ref();
-    c.bench_with_input(BenchmarkId::new("u64_take_unchecked", data.len()), &slice, |b, d| {
-        let mut out = 0;
-        b.iter(|| {
-            let mut data = d.as_ref();
-            for _ in 0..SIZE {
-                out = take_u64_unchecked(&mut data);
-            }
-        });
-    });
+    c.bench_with_input(
+        BenchmarkId::new("u64_take_unchecked", data.len()),
+        &slice,
+        |b, d| {
+            let mut out = 0;
+            b.iter(|| {
+                let mut data = d.as_ref();
+                for _ in 0..SIZE {
+                    out = take_u64_unchecked(&mut data);
+                }
+            });
+        },
+    );
 }
 
 criterion_group!(benches, bench_read_u64);
