@@ -4,66 +4,158 @@ use paste::paste;
 
 use crate::error::{DecodeError, DecodeResult, EncodeError, EncodeResult};
 
-pub trait EncodeSlice
-where
-    Self: Sized,
-{
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]>;
-}
+pub struct Guard(u8);
 
-pub trait EncodeSliceBounded: EncodeSlice
-where
-    Self: Sized,
-{
-    fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> EncodeResult<&'a mut [u8]> {
-        let (dst, rem) = dst
-            .split_at_mut_checked(len)
-            .ok_or(EncodeError::Needed(len))?;
-        self.encode_into(dst)?;
-        Ok(rem)
+impl From<u64> for Guard {
+    fn from(value: u64) -> Self {
+        Guard::new(&value.to_le_bytes())
     }
 }
 
-impl<const N: usize> EncodeSlice for [u8; N] {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
-        // TODO: inaccurate (should be N - input.len())
-        let (dst, rem) = dst.split_at_mut_checked(N).ok_or(EncodeError::Needed(N))?;
-        dst.copy_from_slice(self);
-        Ok(rem)
+impl From<usize> for Guard {
+    fn from(value: usize) -> Self {
+        Guard::new(&value.to_le_bytes())
     }
 }
 
-impl EncodeSliceBounded for &[u8] {}
+impl Guard {
+    pub fn new(bytes: &[u8]) -> Guard {
+        Guard(!(bytes.iter().fold(0u8, |b, acc| acc ^ b)))
+    }
 
-impl EncodeSlice for &[u8] {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
-        let dst_len = dst.len();
-        match dst.split_at_mut_checked(self.len()) {
-            Some((dst, rem)) => {
-                dst.copy_from_slice(self);
-                Ok(rem)
-            }
-            None => Err(EncodeError::Needed(self.len() - dst_len)),
+    pub fn get(&self) -> u8 {
+        self.0
+    }
+}
+
+// TODO: Remove 'Default' trait bound? Needed for EncodeExt (std::mem::take() bounds)
+pub trait ByteStream: Default
+where
+    Self: Sized,
+{
+    fn insert_bytes(self, input: &[u8]) -> Result<Self, usize>;
+    fn capacity(&self) -> usize;
+}
+
+impl ByteStream for &mut [u8] {
+    fn insert_bytes(self, input: &[u8]) -> Result<Self, usize> {
+        if input.len() <= self.len() {
+            // SAFETY: mid <= self.len()
+            let (dst, rem) = self.split_at_mut(input.len());
+            dst.copy_from_slice(input);
+            Ok(rem)
+        } else {
+            Err(input.len() - self.len())
         }
     }
+
+    fn capacity(&self) -> usize {
+        self.len()
+    }
 }
 
-impl EncodeSliceBounded for &[AsciiChar] {}
+impl<'a, S, X> ByteStream for (S, X)
+where
+    S: ByteStream,
+    X: Default,
+{
+    fn insert_bytes(self, input: &[u8]) -> Result<Self, usize> {
+        let rem = self.0.insert_bytes(input)?;
+        Ok((rem, self.1))
+    }
 
-impl EncodeSlice for &[AsciiChar] {
-    fn encode_into<'a>(&self, input: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
-        self.as_bytes().encode_into(input)
+    fn capacity(&self) -> usize {
+        self.0.capacity()
+    }
+}
+
+pub trait EncodeInto
+where
+    Self: Sized,
+{
+    fn encode_into<S>(&self, dst: S) -> EncodeResult<S>
+    where
+        S: ByteStream;
+}
+
+pub trait EncodeIntoStateful<X>
+where
+    X: Default,
+    Self: Sized,
+{
+    fn encode_into_with<S>(&self, dst: S, val: &mut X) -> EncodeResult<S>
+    where
+        S: ByteStream;
+}
+
+impl<const N: usize> EncodeInto for [u8; N] {
+    fn encode_into<S>(&self, dst: S) -> EncodeResult<S>
+    where
+        S: ByteStream,
+    {
+        dst.insert_bytes(self.as_slice())
+            .map_err(|n| EncodeError::Needed(n))
+    }
+}
+
+impl EncodeInto for &[u8] {
+    fn encode_into<S>(&self, dst: S) -> EncodeResult<S>
+    where
+        S: ByteStream,
+    {
+        dst.insert_bytes(self).map_err(|n| EncodeError::Needed(n))
+    }
+}
+
+impl EncodeInto for &[AsciiChar] {
+    fn encode_into<S>(&self, dst: S) -> EncodeResult<S>
+    where
+        S: ByteStream,
+    {
+        dst.insert_bytes(self.as_bytes())
+            .map_err(|n| EncodeError::Needed(n))
     }
 }
 
 macro_rules! encode_impl {
     ($t:ident) => {
-        impl EncodeSlice for $t {
-            fn encode_into<'a>(&self, input: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
-                self.to_le_bytes().encode_into(input)
+        impl EncodeInto for $t {
+            fn encode_into<S>(&self, dst: S) -> EncodeResult<S>
+            where
+                S: ByteStream,
+            {
+                dst.insert_bytes(&self.to_le_bytes())
+                    .map_err(|n| EncodeError::Needed(n))
             }
         }
     };
+}
+
+impl EncodeInto for PVarint {
+    fn encode_into<S>(&self, dst: S) -> EncodeResult<S>
+    where
+        S: ByteStream,
+    {
+        let mut buf = [0u8; 9];
+        let value = self.get();
+        let zeros = value.leading_zeros();
+
+        // Catch empty u64
+        if zeros == 64 {
+            0x01u8.encode_into(dst)
+        // Catch full u64
+        } else if zeros == 0 {
+            buf[1..].copy_from_slice(&value.to_le_bytes());
+            buf.encode_into(dst)
+        // Catch var u64
+        } else {
+            let bytes = 8 - ((zeros - 1) / 7) as usize;
+            let data = value << bytes + 1;
+            buf[..=bytes].copy_from_slice(&data.to_le_bytes()[..=bytes]);
+            buf[0] |= if bytes >= 8 { 0 } else { 0x01 << bytes };
+            (&buf[..=bytes]).encode_into(dst)
+        }
+    }
 }
 
 encode_impl!(u8);
@@ -78,15 +170,17 @@ encode_impl!(i64);
 macro_rules! encode_tuple_impl {
     ($($T:tt)*) => {
         paste! {
-            impl<$($T,)*> EncodeSlice for ($($T,)*)
+            impl<$($T,)*> EncodeInto for ($($T,)*)
             where
-                $($T: EncodeSlice,)*
+                $($T: EncodeInto,)*
             {
-                fn encode_into<'a>(&self, input: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
-                    let mut input = input;
+                fn encode_into<S>(&self, dst: S) -> EncodeResult<S>
+                where
+                    S: ByteStream, {
+                    let mut dst = dst;
                     let ($([<$T:lower 1>],)*) = self;
-                    ($({input = [<$T:lower 1>].encode_into(std::mem::take(&mut input))?},)*);
-                    Ok(input)
+                    ($({dst = [<$T:lower 1>].encode_into(dst)?},)*);
+                    Ok(dst)
                 }
             }
         }
@@ -102,19 +196,48 @@ encode_tuple_impl!(A B C);
 encode_tuple_impl!(A B);
 encode_tuple_impl!(A);
 
-pub trait EncodeExt {
-    fn encode<T>(&mut self, val: impl Borrow<T>) -> EncodeResult<()>
+pub trait EncodeIntoBounded: EncodeInto
+where
+    Self: Sized,
+{
+    fn encode_len_into<S>(&self, dst: S, len: usize) -> EncodeResult<S>
     where
-        T: EncodeSlice;
-    fn encode_len<T>(&mut self, val: impl Borrow<T>, len: usize) -> EncodeResult<()>
-    where
-        T: EncodeSlice + EncodeSliceBounded;
+        S: ByteStream;
 }
 
-impl EncodeExt for &mut [u8] {
+impl EncodeIntoBounded for &[u8] {
+    fn encode_len_into<S>(&self, dst: S, len: usize) -> EncodeResult<S>
+    where
+        S: ByteStream,
+    {
+        dst.insert_bytes(&self[..len])
+            .map_err(|n| EncodeError::Needed(n))
+    }
+}
+
+impl EncodeIntoBounded for &[AsciiChar] {
+    fn encode_len_into<S>(&self, dst: S, len: usize) -> EncodeResult<S>
+    where
+        S: ByteStream,
+    {
+        dst.insert_bytes(&self.as_bytes()[..len])
+            .map_err(|n| EncodeError::Needed(n))
+    }
+}
+
+pub trait EncodeExt<S: ByteStream> {
     fn encode<T>(&mut self, val: impl Borrow<T>) -> EncodeResult<()>
     where
-        T: EncodeSlice,
+        T: EncodeInto;
+    fn encode_len<T>(&mut self, val: impl Borrow<T>, len: usize) -> EncodeResult<()>
+    where
+        T: EncodeInto + EncodeIntoBounded;
+}
+
+impl<S: ByteStream> EncodeExt<S> for S {
+    fn encode<T>(&mut self, val: impl Borrow<T>) -> EncodeResult<()>
+    where
+        T: EncodeInto,
     {
         let rem = val.borrow().encode_into(std::mem::take(self))?;
         *self = rem;
@@ -123,7 +246,7 @@ impl EncodeExt for &mut [u8] {
 
     fn encode_len<T>(&mut self, val: impl Borrow<T>, len: usize) -> EncodeResult<()>
     where
-        T: EncodeSlice + EncodeSliceBounded,
+        T: EncodeInto + EncodeIntoBounded,
     {
         let rem = val.borrow().encode_len_into(std::mem::take(self), len)?;
         *self = rem;
@@ -309,20 +432,36 @@ mod test {
 
     use super::*;
 
-    const DATA: [u8; 32] = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F];
+    const DATA: [u8; 32] = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+        0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D,
+        0x1E, 0x1F,
+    ];
+
+    // TODO: Does not handle recursive tuples
+    macro_rules! size_of_tuple {
+        ($($T:tt)*) => {
+            {
+                let mut size = 0;
+                ($(size += size_of::<$T>())*);
+                size
+            }
+
+        };
+    }
 
     // Decode/Encode one value from data (even if data has more bytes than needed)
     fn codec_harness<'a, T, const N: usize>(data: &'a [u8; N], expected: T)
     where
-        T: EncodeSlice + DecodeSlice<'a> + PartialEq + Debug,
+        T: EncodeInto + DecodeSlice<'a> + PartialEq + Debug,
     {
-        let type_len = size_of::<T>();
+        let type_len = size_of_tuple!(T);
         let mut input = &data[..];
 
         // Decode: Assert expected value & remaining buf
         let value = input.decode::<T>().unwrap();
         assert_eq!(value, expected);
-        assert_eq!(input, &data[type_len..]);
+        assert_eq!(input, &data[type_len..], "type len = {type_len}");
 
         // Encode: Assert buffer contents == source contents & remaining buf untouched
         let mut buf = [0; N];
@@ -347,9 +486,15 @@ mod test {
 
     #[test]
     fn codec_tuple() {
-        codec_harness(&DATA, (0x00u8, 0x01u8, 0x02u8, 0x03u8, 0x04u8, 0x05u8, 0x06u8, 0x07u8));
-        codec_harness(&DATA, (0x0100u16, 0x0302u16, 0x0504u16, 0x0706u16));
-        codec_harness(&DATA, (0x03020100u32, 0x07060504u32, 0x0B0A0908u32, 0x0F0E0D0Cu32));
-        codec_harness(&DATA, (0x0706050403020100u64, 0x0F0E0D0C0B0A0908u64));
+        let u8_tuple = (0x00u8, 0x01u8, 0x02u8, 0x03u8);
+        let u16_tuple = (0x0100u16, 0x0302u16, 0x0504u16, 0x0706u16);
+        let u32_tuple = (0x03020100u32, 0x07060504u32, 0x0B0A0908u32, 0x0F0E0D0Cu32);
+        let u64_tuple = (0x0706050403020100u64, 0x0F0E0D0C0B0A0908u64);
+        let mix_tuple = (0x00u8, 0x01u8, 0x0302u16, 0x07060504u32);
+        codec_harness(&DATA, u8_tuple);
+        codec_harness(&DATA, u16_tuple);
+        codec_harness(&DATA, u32_tuple);
+        codec_harness(&DATA, u64_tuple);
+        codec_harness(&DATA, mix_tuple);
     }
 }

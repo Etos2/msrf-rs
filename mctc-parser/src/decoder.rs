@@ -1,9 +1,9 @@
 use std::ascii::Char as AsciiChar;
 
 use crate::{
-    data::{CodecEntry, CodecTable, Header, Record},
+    data::{Header, Record, RecordFlags, RecordMeta, RecordMeta2},
     error::{DecodeError, DecodeResult},
-    io::{DecodeExt, DecodeSlice, PVarint},
+    io::{DecodeExt, DecodeSlice, Guard, PVarint},
     MAGIC_BYTES,
 };
 
@@ -17,44 +17,45 @@ impl<'a> DecodeSlice<'a> for Header {
         let _magic_bytes = input
             .decode_assert::<[u8; 4]>(MAGIC_BYTES)?
             .ok_or(DecodeError::Badness)?;
-        let _length = input.decode::<u32>()? as usize;
-        let version = input.decode::<u16>()?;
-        let flags = input.decode::<u16>()?.into();
-        let entries = input.decode::<u16>()? as usize;
+        let length = input.decode::<PVarint>()?.get() as usize;
+        let version = input.decode::<(u8, u8)>()?;
+        let guard = input.decode::<u8>()?;
 
-        let mut codec_table = CodecTable::new();
-        for _ in 0..entries {
-            codec_table.push(input.decode::<Option<CodecEntry>>()?);
+        if Guard::from(length).get() != guard {
+            return Err(DecodeError::Badness);
         }
 
-        Ok((
-            input,
-            Header {
-                version,
-                flags,
-                codec_table,
-            },
-        ))
+        Ok((input, Header { version }))
     }
 }
 
-impl<'a> DecodeSlice<'a> for Option<CodecEntry> {
+impl<'a> DecodeSlice<'a> for RecordMeta2 {
     fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
         let mut input = input;
-        let length = input.decode::<u8>()? as usize;
-        match length {
-            0 => Ok((input, None)),
-            1..=2 => Err(DecodeError::Badness), // TODO: Enforce minimum name len? A name of 0 is useless for identifying which decoder to use
-            3.. => {
-                let version = input.decode::<u16>()?;
-                let name = input.decode_len::<&[AsciiChar]>(length - 3)?;
-                let _guard = input
-                    .decode_assert::<u8>(0)?
-                    .ok_or(DecodeError::ExpectedGuard)?;
 
-                Ok((input, Some(CodecEntry::new_ascii(version, name))))
-            }
-        }
+        let length = input.decode::<PVarint>()?.get() as usize;
+        let flags = RecordFlags::from_bits_truncate(length as u8);
+
+        let source_id = if flags.contains(RecordFlags::SOURCE_INHERIT) {
+            todo!()
+        } else {
+            input.decode::<u16>()?
+        };
+
+        let type_id = if flags.contains(RecordFlags::TYPE_INHERIT) {
+            todo!()
+        } else {
+            input.decode::<u16>()?
+        };
+
+        Ok((
+            input,
+            RecordMeta2 {
+                source_id,
+                type_id,
+                length,
+            },
+        ))
     }
 }
 

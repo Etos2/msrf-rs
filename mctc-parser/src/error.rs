@@ -35,5 +35,19 @@ impl Display for DecodeError {
 #[derive(Debug)]
 pub enum EncodeError {
     Needed(usize),
+    Truncation,
     Badness,
 }
+
+impl Error for EncodeError {}
+
+impl Display for EncodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EncodeError::Needed(n) => writeln!(f, "need {n} more bytes"),
+            EncodeError::Truncation => writeln!(f, "value was too large"),
+            EncodeError::Badness => writeln!(f, "bad!"),
+        }
+    }
+}
+

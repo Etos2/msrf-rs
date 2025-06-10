@@ -20,10 +20,9 @@ mod io;
 #[cfg(test)]
 mod test;
 
-const CURRENT_VERSION: u16 = 0;
+const CURRENT_VERSION: (u8, u8) = (0, 0);
 const MAGIC_BYTES: [u8; 4] = *b"MCTC";
 const CODEC_ID_EOS: u64 = u64::MAX;
-const CODEC_NAME_BOUNDS: RangeInclusive<u64> = 4..=64;
 
 // TODO: Impl options
 pub struct Options {}
