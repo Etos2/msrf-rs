@@ -1,7 +1,7 @@
 use crate::{
     data::{Header, RecordMeta},
     error::{DecodeError, DecodeResult},
-    io::{DecodeExt, DecodeInto, Guard, PVarint},
+    io::{util::{Guard, PVarint}, DecodeExt, DecodeInto},
     MAGIC_BYTES,
 };
 

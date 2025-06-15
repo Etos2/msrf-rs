@@ -1,7 +1,7 @@
 use crate::{
     data::{Header, RecordMeta},
     error::{EncodeError, EncodeResult},
-    io::*,
+    io::{util::{Guard, PVarint}, *},
     MAGIC_BYTES, RECORD_LENGTH_EOS,
 };
 

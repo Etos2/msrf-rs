@@ -1,4 +1,4 @@
-use crate::{data::Header, io::Guard, MAGIC_BYTES};
+use crate::{data::Header, io::util::Guard, MAGIC_BYTES};
 
 pub fn ref_header() -> Header {
     Header { version: (1, 2) }
