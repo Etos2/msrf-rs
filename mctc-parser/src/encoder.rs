@@ -15,11 +15,11 @@ impl EncodeInto for Header {
             return Err(EncodeError::Needed(HEADER_LENGTH - dst.len()));
         }
 
-        let header_len = HEADER_LENGTH as u64 - 4; // Exlusive of MagicBytes & Length
+        let header_len = HEADER_LENGTH as u64 - 5; // Exclude MagicBytes & Length
         dst.encode::<[u8; 4]>(MAGIC_BYTES)?;
         dst.encode(PVarint::from(header_len))?;
         dst.encode(self.version)?;
-        dst.encode(Guard::from(header_len).get())?;
+        dst.encode(Guard::from(header_len))?;
 
         Ok(dst)
     }
@@ -50,7 +50,7 @@ mod test {
         let header = test::ref_header();
         let header_bytes = test::ref_header_bytes();
 
-        let mut output_bytes = [0; 51];
+        let mut output_bytes = [0; 8];
         let mut buf = &mut output_bytes[..];
         buf.encode::<Header>(&header).unwrap();
 

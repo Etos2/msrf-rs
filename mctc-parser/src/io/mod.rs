@@ -33,14 +33,14 @@ where
     fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> EncodeResult<&'a mut [u8]>;
 }
 
-pub trait DecodeInto<'a>
+pub trait DecodeFrom<'a>
 where
     Self: Sized,
 {
     fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)>;
 }
 
-pub trait DecodeIntoBounded<'a>: DecodeInto<'a>
+pub trait DecodeIntoBounded<'a>: DecodeFrom<'a>
 where
     Self: Sized,
 {
@@ -53,7 +53,7 @@ where
     }
 }
 
-impl<'a, const N: usize> DecodeInto<'a> for [u8; N] {
+impl<'a, const N: usize> DecodeFrom<'a> for [u8; N] {
     fn decode_from(input: &[u8]) -> DecodeResult<(&[u8], Self)> {
         let (out, rem) = input
             .split_at_checked(N)
@@ -80,7 +80,7 @@ impl EncodeIntoBounded for &[u8] {
     }
 }
 
-impl<'a> DecodeInto<'a> for &'a [u8]
+impl<'a> DecodeFrom<'a> for &'a [u8]
 {
     fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
         Ok((&[], input))
@@ -97,7 +97,7 @@ impl EncodeInto for &[AsciiChar] {
 }
 
 #[cfg(feature = "ascii")]
-impl<'a> DecodeInto<'a> for &'a [AsciiChar] {
+impl<'a> DecodeFrom<'a> for &'a [AsciiChar] {
     fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
         Ok((&[], input.as_ascii().ok_or(DecodeError::Badness)?))
     }
@@ -120,7 +120,7 @@ macro_rules! codec_impl {
             }
         }
 
-        impl<'a> DecodeInto<'a> for $t {
+        impl<'a> DecodeFrom<'a> for $t {
             fn decode_from(input: &[u8]) -> DecodeResult<(&[u8], Self)> {
                 <[u8; size_of::<$t>()]>::decode_from(input)
                     .map(|(rem, bytes)| (rem, $t::from_le_bytes(bytes)))
@@ -155,9 +155,9 @@ macro_rules! codec_tuple_impl {
             }
         }
 
-        impl<'a, $($T,)*> DecodeInto<'a> for ($($T,)*)
+        impl<'a, $($T,)*> DecodeFrom<'a> for ($($T,)*)
         where
-            $($T: DecodeInto<'a>,)*
+            $($T: DecodeFrom<'a>,)*
         {
             fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
                 let mut input = input;
@@ -223,20 +223,20 @@ impl EncodeExt for &mut [u8] {
 pub trait DecodeExt<'a> {
     fn decode<T>(&mut self) -> DecodeResult<T>
     where
-        T: DecodeInto<'a>;
+        T: DecodeFrom<'a>;
     fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
     where
-        T: DecodeInto<'a> + DecodeIntoBounded<'a>;
+        T: DecodeFrom<'a> + DecodeIntoBounded<'a>;
     fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
     where
-        T: DecodeInto<'a> + PartialEq;
+        T: DecodeFrom<'a> + PartialEq;
     fn skip(&mut self, len: usize) -> DecodeResult<()>;
 }
 
 impl<'a> DecodeExt<'a> for &'a [u8] {
     fn decode<T>(&mut self) -> DecodeResult<T>
     where
-        T: DecodeInto<'a>,
+        T: DecodeFrom<'a>,
     {
         let (rem, out) = T::decode_from(self)?;
         *self = rem;
@@ -245,7 +245,7 @@ impl<'a> DecodeExt<'a> for &'a [u8] {
 
     fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
     where
-        T: DecodeInto<'a> + DecodeIntoBounded<'a>,
+        T: DecodeFrom<'a> + DecodeIntoBounded<'a>,
     {
         let (rem, out) = T::decode_from_bounded(self, len)?;
         *self = rem;
@@ -254,7 +254,7 @@ impl<'a> DecodeExt<'a> for &'a [u8] {
 
     fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
     where
-        T: DecodeInto<'a> + PartialEq,
+        T: DecodeFrom<'a> + PartialEq,
     {
         Ok((self.decode::<T>()? == cmp).then_some(cmp))
     }
@@ -297,7 +297,7 @@ mod test {
         expected_len: usize,
         expected: T,
     ) where
-        T: EncodeInto + DecodeInto<'a> + PartialEq + std::fmt::Debug,
+        T: EncodeInto + DecodeFrom<'a> + PartialEq + std::fmt::Debug,
     {
         let type_len = expected_len;
         let mut input = &data[..];
@@ -318,7 +318,7 @@ mod test {
     // Decode/Encode one value from data (even if data has more bytes than needed)
     pub(crate) fn codec_harness<'a, T, const N: usize>(data: &'a [u8; N], expected: T)
     where
-        T: EncodeInto + DecodeInto<'a> + PartialEq + std::fmt::Debug,
+        T: EncodeInto + DecodeFrom<'a> + PartialEq + std::fmt::Debug,
     {
         codec_harness_sized(data, size_of_tuple!(T), expected)
     }

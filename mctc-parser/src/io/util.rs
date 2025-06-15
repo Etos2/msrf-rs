@@ -1,14 +1,21 @@
-use crate::{error::{DecodeResult, EncodeResult}, io::{DecodeExt, DecodeInto, EncodeInto}};
+use crate::{
+    error::{DecodeResult, EncodeResult},
+    io::{DecodeExt, DecodeFrom, EncodeInto},
+};
 
 pub struct Guard(u8);
 
 impl Guard {
     pub fn new(bytes: &[u8]) -> Guard {
-        Guard(!(bytes.iter().fold(0u8, |b, acc| acc ^ b)))
+        Guard(Self::generate(bytes))
     }
 
     pub fn get(&self) -> u8 {
         self.0
+    }
+
+    pub fn generate(bytes: &[u8]) -> u8 {
+        !(bytes.iter().fold(0u8, |b, acc| acc ^ b))
     }
 }
 
@@ -27,7 +34,17 @@ guard_impl!(u32);
 guard_impl!(u16);
 guard_impl!(u8);
 
+impl EncodeInto for Guard {
+    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
+        self.0.encode_into(dst)
+    }
+}
 
+impl<'a> DecodeFrom<'a> for Guard {
+    fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
+        u8::decode_from(input).map(|(rem, val)| (rem, Guard(val)))
+    }
+}
 
 // TODO: Treat PVarint like Guard (creates value upon insertion PVarint([u8; 9]))
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -75,7 +92,7 @@ impl EncodeInto for PVarint {
     }
 }
 
-impl<'a> DecodeInto<'a> for PVarint {
+impl<'a> DecodeFrom<'a> for PVarint {
     fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
         let mut input = input;
         let tag = input.decode::<u8>()?;
@@ -98,7 +115,6 @@ impl<'a> DecodeInto<'a> for PVarint {
     }
 }
 
-
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
@@ -120,6 +136,7 @@ pub(crate) mod test {
         codec_harness_sized(&prefixed_array::<6>(0xE0), 6, PVarint(4398046511103)); // 2^42 - 1
         codec_harness_sized(&prefixed_array::<7>(0xC0), 7, PVarint(562949953421311)); // 2^49 - 1
         codec_harness_sized(&prefixed_array::<8>(0x80), 8, PVarint(72057594037927935)); // 2^56 - 1
-        codec_harness_sized(&prefixed_array::<9>(0x00), 9, PVarint(18446744073709551615)); // 2^64
+        codec_harness_sized(&prefixed_array::<9>(0x00), 9, PVarint(18446744073709551615));
+        // 2^64
     }
 }

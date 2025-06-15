@@ -1,7 +1,10 @@
 use crate::{
     data::{Header, RecordMeta},
     error::{DecodeError, DecodeResult},
-    io::{util::{Guard, PVarint}, DecodeExt, DecodeInto},
+    io::{
+        util::{Guard, PVarint},
+        DecodeExt, DecodeFrom,
+    },
     MAGIC_BYTES,
 };
 
@@ -9,7 +12,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Decoder {}
 
-impl<'a> DecodeInto<'a> for Header {
+impl<'a> DecodeFrom<'a> for Header {
     fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
         let mut input = input;
         let _magic_bytes = input
@@ -24,14 +27,14 @@ impl<'a> DecodeInto<'a> for Header {
         }
 
         let _guard = input
-            .decode_assert::<u8>(Guard::from(length).get())?
+            .decode_assert::<u8>(Guard::generate(&length.to_le_bytes()))?
             .ok_or(DecodeError::Badness)?;
 
         Ok((input, Header { version }))
     }
 }
 
-impl<'a> DecodeInto<'a> for RecordMeta {
+impl<'a> DecodeFrom<'a> for RecordMeta {
     fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
         let mut input = input;
 
