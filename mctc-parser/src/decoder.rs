@@ -1,6 +1,6 @@
 use crate::{
     data::{Header, RecordMeta},
-    error::{DecodeError, DecodeResult},
+    error::{CodecError, CodecResult},
     io::{
         util::{Guard, PVarint},
         DecodeExt, DecodeFrom,
@@ -13,11 +13,11 @@ use crate::{
 pub struct Decoder {}
 
 impl<'a> DecodeFrom<'a> for Header {
-    fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
+    fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)> {
         let mut input = input;
         let _magic_bytes = input
             .decode_assert::<[u8; 4]>(MAGIC_BYTES)?
-            .ok_or(DecodeError::Badness)?;
+            .ok_or(CodecError::Badness)?;
         let length = input.decode::<PVarint>()?.get();
         let version = input.decode::<(u8, u8)>()?; // TODO: handle versions (especially MAJOR version)
 
@@ -28,17 +28,17 @@ impl<'a> DecodeFrom<'a> for Header {
 
         let _guard = input
             .decode_assert::<u8>(Guard::generate(&length.to_le_bytes()))?
-            .ok_or(DecodeError::Badness)?;
+            .ok_or(CodecError::Badness)?;
 
         Ok((input, Header { version }))
     }
 }
 
 impl<'a> DecodeFrom<'a> for RecordMeta {
-    fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
+    fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)> {
         let mut input = input;
 
-        // TODO: Handle len invariance (EOS > InvalidLen >= 4)
+        // TODO: Handle length invariance (EOS > InvalidLen >= 4)
         let length = input.decode::<PVarint>()?.get() as usize;
         if length != 0 {
             let source_id = input.decode::<u16>()?;

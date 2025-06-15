@@ -6,7 +6,7 @@ use std::borrow::Borrow;
 
 use paste::paste;
 
-use crate::error::{DecodeError, DecodeResult, EncodeError, EncodeResult};
+use crate::error::{CodecError, CodecResult};
 
 fn insert_bytes<'a>(buf: &'a mut [u8], input: &[u8]) -> Result<&'a mut [u8], usize> {
     if input.len() <= buf.len() {
@@ -23,66 +23,65 @@ pub trait EncodeInto
 where
     Self: Sized,
 {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]>;
+    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]>;
 }
 
 pub trait EncodeIntoBounded: EncodeInto
 where
     Self: Sized,
 {
-    fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> EncodeResult<&'a mut [u8]>;
+    fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> CodecResult<&'a mut [u8]>;
 }
 
 pub trait DecodeFrom<'a>
 where
     Self: Sized,
 {
-    fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)>;
+    fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)>;
 }
 
 pub trait DecodeIntoBounded<'a>: DecodeFrom<'a>
 where
     Self: Sized,
 {
-    fn decode_from_bounded(input: &'a [u8], len: usize) -> DecodeResult<(&'a [u8], Self)> {
+    fn decode_from_bounded(input: &'a [u8], len: usize) -> CodecResult<(&'a [u8], Self)> {
         let (out, rem) = input
             .split_at_checked(len)
-            .ok_or_else(|| DecodeError::Needed(len - input.len()))?;
+            .ok_or_else(|| CodecError::Needed(len - input.len()))?;
         let (_, val) = Self::decode_from(out)?;
         Ok((rem, val))
     }
 }
 
 impl<'a, const N: usize> DecodeFrom<'a> for [u8; N] {
-    fn decode_from(input: &[u8]) -> DecodeResult<(&[u8], Self)> {
+    fn decode_from(input: &[u8]) -> CodecResult<(&[u8], Self)> {
         let (out, rem) = input
             .split_at_checked(N)
-            .ok_or_else(|| DecodeError::Needed(N - input.len()))?;
+            .ok_or_else(|| CodecError::Needed(N - input.len()))?;
         Ok((rem, out.try_into().unwrap())) // SAFETY: "out" is always length N
     }
 }
 
 impl<const N: usize> EncodeInto for [u8; N] {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
-        insert_bytes(dst, self.as_slice()).map_err(|n| EncodeError::Needed(n))
+    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
+        insert_bytes(dst, self.as_slice()).map_err(|n| CodecError::Needed(n))
     }
 }
 
 impl EncodeInto for &[u8] {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
-        insert_bytes(dst, self).map_err(|n| EncodeError::Needed(n))
+    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
+        insert_bytes(dst, self).map_err(|n| CodecError::Needed(n))
     }
 }
 
 impl EncodeIntoBounded for &[u8] {
-    fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> EncodeResult<&'a mut [u8]> {
-        insert_bytes(dst, &self[..len]).map_err(|n| EncodeError::Needed(n))
+    fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> CodecResult<&'a mut [u8]> {
+        insert_bytes(dst, &self[..len]).map_err(|n| CodecError::Needed(n))
     }
 }
 
-impl<'a> DecodeFrom<'a> for &'a [u8]
-{
-    fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
+impl<'a> DecodeFrom<'a> for &'a [u8] {
+    fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)> {
         Ok((&[], input))
     }
 }
@@ -91,22 +90,22 @@ impl<'a> DecodeIntoBounded<'a> for &'a [u8] {}
 
 #[cfg(feature = "ascii")]
 impl EncodeInto for &[AsciiChar] {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
-        insert_bytes(dst, self.as_bytes()).map_err(|n| EncodeError::Needed(n))
+    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
+        insert_bytes(dst, self.as_bytes()).map_err(|n| CodecError::Needed(n))
     }
 }
 
 #[cfg(feature = "ascii")]
 impl<'a> DecodeFrom<'a> for &'a [AsciiChar] {
-    fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
-        Ok((&[], input.as_ascii().ok_or(DecodeError::Badness)?))
+    fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)> {
+        Ok((&[], input.as_ascii().ok_or(CodecError::Badness)?))
     }
 }
 
 #[cfg(feature = "ascii")]
 impl EncodeIntoBounded for &[AsciiChar] {
-    fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> EncodeResult<&'a mut [u8]> {
-        insert_bytes(dst, &self.as_bytes()[..len]).map_err(|n| EncodeError::Needed(n))
+    fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> CodecResult<&'a mut [u8]> {
+        insert_bytes(dst, &self.as_bytes()[..len]).map_err(|n| CodecError::Needed(n))
     }
 }
 #[cfg(feature = "ascii")]
@@ -115,13 +114,13 @@ impl<'a> DecodeIntoBounded<'a> for &'a [AsciiChar] {}
 macro_rules! codec_impl {
     ($t:ident) => {
         impl EncodeInto for $t {
-            fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
-                insert_bytes(dst, &self.to_le_bytes()).map_err(|n| EncodeError::Needed(n))
+            fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
+                insert_bytes(dst, &self.to_le_bytes()).map_err(|n| CodecError::Needed(n))
             }
         }
 
         impl<'a> DecodeFrom<'a> for $t {
-            fn decode_from(input: &[u8]) -> DecodeResult<(&[u8], Self)> {
+            fn decode_from(input: &[u8]) -> CodecResult<(&[u8], Self)> {
                 <[u8; size_of::<$t>()]>::decode_from(input)
                     .map(|(rem, bytes)| (rem, $t::from_le_bytes(bytes)))
             }
@@ -145,7 +144,7 @@ macro_rules! codec_tuple_impl {
             where
                 $($T: EncodeInto,)*
             {
-                fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]>
+                fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]>
                 {
                     let mut dst = dst;
                     let ($([<$T:lower 1>],)*) = self;
@@ -159,7 +158,7 @@ macro_rules! codec_tuple_impl {
         where
             $($T: DecodeFrom<'a>,)*
         {
-            fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
+            fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)> {
                 let mut input = input;
                 let out = ($(<$T>::decode_from(input).map(|(rem, out)| {
                     input = rem;
@@ -181,17 +180,17 @@ codec_tuple_impl!(A B);
 codec_tuple_impl!(A);
 
 pub trait EncodeExt {
-    fn encode<T>(&mut self, val: impl Borrow<T>) -> EncodeResult<()>
+    fn encode<T>(&mut self, val: impl Borrow<T>) -> CodecResult<()>
     where
         T: EncodeInto;
-    fn encode_len<T>(&mut self, val: impl Borrow<T>, len: usize) -> EncodeResult<()>
+    fn encode_len<T>(&mut self, val: impl Borrow<T>, len: usize) -> CodecResult<()>
     where
         T: EncodeInto + EncodeIntoBounded;
-    fn skip(&mut self, len: usize) -> EncodeResult<()>;
+    fn skip(&mut self, len: usize) -> CodecResult<()>;
 }
 
 impl EncodeExt for &mut [u8] {
-    fn encode<T>(&mut self, val: impl Borrow<T>) -> EncodeResult<()>
+    fn encode<T>(&mut self, val: impl Borrow<T>) -> CodecResult<()>
     where
         T: EncodeInto,
     {
@@ -200,7 +199,7 @@ impl EncodeExt for &mut [u8] {
         Ok(())
     }
 
-    fn encode_len<T>(&mut self, val: impl Borrow<T>, len: usize) -> EncodeResult<()>
+    fn encode_len<T>(&mut self, val: impl Borrow<T>, len: usize) -> CodecResult<()>
     where
         T: EncodeInto + EncodeIntoBounded,
     {
@@ -209,32 +208,32 @@ impl EncodeExt for &mut [u8] {
         Ok(())
     }
 
-    fn skip(&mut self, len: usize) -> EncodeResult<()> {
+    fn skip(&mut self, len: usize) -> CodecResult<()> {
         if self.len() >= len {
             let buf = std::mem::take(self);
             *self = &mut buf[len..];
             Ok(())
         } else {
-            Err(EncodeError::Needed(len - self.len()))
+            Err(CodecError::Needed(len - self.len()))
         }
     }
 }
 
 pub trait DecodeExt<'a> {
-    fn decode<T>(&mut self) -> DecodeResult<T>
+    fn decode<T>(&mut self) -> CodecResult<T>
     where
         T: DecodeFrom<'a>;
-    fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
+    fn decode_len<T>(&mut self, len: usize) -> CodecResult<T>
     where
         T: DecodeFrom<'a> + DecodeIntoBounded<'a>;
-    fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
+    fn decode_assert<T>(&mut self, cmp: T) -> CodecResult<Option<T>>
     where
         T: DecodeFrom<'a> + PartialEq;
-    fn skip(&mut self, len: usize) -> DecodeResult<()>;
+    fn skip(&mut self, len: usize) -> CodecResult<()>;
 }
 
 impl<'a> DecodeExt<'a> for &'a [u8] {
-    fn decode<T>(&mut self) -> DecodeResult<T>
+    fn decode<T>(&mut self) -> CodecResult<T>
     where
         T: DecodeFrom<'a>,
     {
@@ -243,7 +242,7 @@ impl<'a> DecodeExt<'a> for &'a [u8] {
         Ok(out)
     }
 
-    fn decode_len<T>(&mut self, len: usize) -> DecodeResult<T>
+    fn decode_len<T>(&mut self, len: usize) -> CodecResult<T>
     where
         T: DecodeFrom<'a> + DecodeIntoBounded<'a>,
     {
@@ -252,20 +251,20 @@ impl<'a> DecodeExt<'a> for &'a [u8] {
         Ok(out)
     }
 
-    fn decode_assert<T>(&mut self, cmp: T) -> DecodeResult<Option<T>>
+    fn decode_assert<T>(&mut self, cmp: T) -> CodecResult<Option<T>>
     where
         T: DecodeFrom<'a> + PartialEq,
     {
         Ok((self.decode::<T>()? == cmp).then_some(cmp))
     }
 
-    fn skip(&mut self, len: usize) -> DecodeResult<()> {
+    fn skip(&mut self, len: usize) -> CodecResult<()> {
         if self.len() >= len {
             let buf = std::mem::take(self);
             *self = &buf[len..];
             Ok(())
         } else {
-            Err(DecodeError::Needed(len - self.len()))
+            Err(CodecError::Needed(len - self.len()))
         }
     }
 }

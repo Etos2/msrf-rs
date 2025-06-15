@@ -1,5 +1,5 @@
 use crate::{
-    error::{DecodeResult, EncodeResult},
+    error::{CodecResult},
     io::{DecodeExt, DecodeFrom, EncodeInto},
 };
 
@@ -35,13 +35,13 @@ guard_impl!(u16);
 guard_impl!(u8);
 
 impl EncodeInto for Guard {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
+    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
         self.0.encode_into(dst)
     }
 }
 
 impl<'a> DecodeFrom<'a> for Guard {
-    fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
+    fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)> {
         u8::decode_from(input).map(|(rem, val)| (rem, Guard(val)))
     }
 }
@@ -69,7 +69,7 @@ impl PVarint {
 }
 
 impl EncodeInto for PVarint {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
+    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
         let mut buf = [0u8; 9];
         let value = self.get();
         let zeros = value.leading_zeros();
@@ -93,7 +93,7 @@ impl EncodeInto for PVarint {
 }
 
 impl<'a> DecodeFrom<'a> for PVarint {
-    fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
+    fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)> {
         let mut input = input;
         let tag = input.decode::<u8>()?;
         let len = tag.trailing_zeros() as usize;

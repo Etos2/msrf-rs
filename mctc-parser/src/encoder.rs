@@ -1,7 +1,10 @@
 use crate::{
     data::{Header, RecordMeta},
-    error::{EncodeError, EncodeResult},
-    io::{util::{Guard, PVarint}, *},
+    error::{CodecError, CodecResult},
+    io::{
+        util::{Guard, PVarint},
+        *,
+    },
     MAGIC_BYTES, RECORD_LENGTH_EOS,
 };
 
@@ -9,10 +12,10 @@ pub const HEADER_LENGTH: usize = 8;
 
 // TODO: Customisability? (Version, Additional data, etc)
 impl EncodeInto for Header {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
+    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
         let mut dst = dst;
         if HEADER_LENGTH > dst.len() {
-            return Err(EncodeError::Needed(HEADER_LENGTH - dst.len()));
+            return Err(CodecError::Needed(HEADER_LENGTH - dst.len()));
         }
 
         let header_len = HEADER_LENGTH as u64 - 5; // Exclude MagicBytes & Length
@@ -26,7 +29,7 @@ impl EncodeInto for Header {
 }
 
 impl EncodeInto for RecordMeta {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
+    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
         let mut dst = dst;
         let len = self.length as u64;
 
