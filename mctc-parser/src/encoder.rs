@@ -1,43 +1,44 @@
-use std::ascii::Char as AsciiChar;
-
 use crate::{
-    data::{Header, Record, RecordFlags, RecordMeta2},
+    data::{Header, RecordMeta},
     error::{EncodeError, EncodeResult},
     io::*,
-    MAGIC_BYTES,
+    MAGIC_BYTES, RECORD_LENGTH_EOS,
 };
 
-// TODO: Customisability
+pub const HEADER_LENGTH: usize = 8;
+
+// TODO: Customisability? (Version, Additional data, etc)
 impl EncodeInto for Header {
-    fn encode_into<S>(&self, dst: S) -> EncodeResult<S>
-    where
-        S: ByteStream,
-    {
+    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
         let mut dst = dst;
-        let len: usize = 14;
-        if len > dst.capacity() {
-            return Err(EncodeError::Needed(len));
+        if HEADER_LENGTH > dst.len() {
+            return Err(EncodeError::Needed(HEADER_LENGTH - dst.len()));
         }
 
+        let header_len = HEADER_LENGTH as u64 - 4; // Exlusive of MagicBytes & Length
         dst.encode::<[u8; 4]>(MAGIC_BYTES)?;
-        dst.encode((len as u32 - 8) as u32)?; // TODO: Truncation detection
+        dst.encode(PVarint::from(header_len))?;
         dst.encode(self.version)?;
-        // FIXME: Guard
+        dst.encode(Guard::from(header_len).get())?;
 
         Ok(dst)
     }
 }
 
-// impl EncodeIntoStateful<RecordMeta2> for RecordMeta2 {
-//     fn encode_into_with<S>(&self, dst: S, val: &mut RecordMeta2) -> EncodeResult<S>
-//     where
-//         S: ByteStream,
-//     {
-//         let mut dst = dst;
+impl StatefulEncodeInto<u64> for RecordMeta {
+    fn encode_into_with<'a>(&self, dst: &'a mut [u8], state: u64) -> EncodeResult<&'a mut [u8]> {
+        let mut dst = dst;
+        let length = state;
 
-//         Ok(dst)
-//     }
-// }
+        dst.encode(PVarint::from(length))?;
+        if length != RECORD_LENGTH_EOS {
+            dst.encode(self.source_id())?;
+            dst.encode(self.type_id())?;
+        }
+
+        Ok(dst)
+    }
+}
 
 #[cfg(test)]
 mod test {
