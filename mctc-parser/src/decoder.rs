@@ -35,18 +35,23 @@ impl<'a> DecodeInto<'a> for RecordMeta {
     fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
         let mut input = input;
 
+        // TODO: Handle len invariance (EOS > InvalidLen >= 4)
         let length = input.decode::<PVarint>()?.get() as usize;
-        let source_id = input.decode::<u16>()?;
-        let type_id = input.decode::<u16>()?;
+        if length != 0 {
+            let source_id = input.decode::<u16>()?;
+            let type_id = input.decode::<u16>()?;
 
-        Ok((
-            input,
-            RecordMeta {
-                length,
-                source_id,
-                type_id,
-            },
-        ))
+            Ok((
+                input,
+                RecordMeta {
+                    length,
+                    source_id,
+                    type_id,
+                },
+            ))
+        } else {
+            Ok((input, RecordMeta::new_eos()))
+        }
     }
 }
 

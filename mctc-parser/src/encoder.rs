@@ -25,15 +25,15 @@ impl EncodeInto for Header {
     }
 }
 
-impl StatefulEncodeInto<u64> for RecordMeta {
-    fn encode_into_with<'a>(&self, dst: &'a mut [u8], state: u64) -> EncodeResult<&'a mut [u8]> {
+impl EncodeInto for RecordMeta {
+    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
         let mut dst = dst;
-        let length = state;
+        let len = self.length as u64;
 
-        dst.encode(PVarint::from(length))?;
-        if length != RECORD_LENGTH_EOS {
-            dst.encode(self.source_id())?;
-            dst.encode(self.type_id())?;
+        dst.encode(PVarint::from(len))?;
+        if len != RECORD_LENGTH_EOS {
+            dst.encode(self.source_id)?;
+            dst.encode(self.type_id)?;
         }
 
         Ok(dst)

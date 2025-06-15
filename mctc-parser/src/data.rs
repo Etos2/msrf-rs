@@ -1,4 +1,4 @@
-use crate::{CURRENT_VERSION};
+use crate::CURRENT_VERSION;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Header {
@@ -31,6 +31,10 @@ pub struct RecordMeta {
 }
 
 impl RecordMeta {
+    pub fn new_eos() -> Self {
+        RecordMeta::default()
+    }
+
     pub fn length(&self) -> usize {
         self.length
     }

@@ -1,4 +1,6 @@
-use std::{ascii::Char as AsciiChar, borrow::Borrow};
+use std::borrow::Borrow;
+#[cfg(feature = "ascii")]
+use std::{ascii::Char as AsciiChar};
 
 use paste::paste;
 
@@ -69,6 +71,7 @@ impl EncodeInto for &[u8] {
     }
 }
 
+#[cfg(feature = "ascii")]
 impl EncodeInto for &[AsciiChar] {
     fn encode_into<'a>(&self, dst: &'a mut [u8]) -> EncodeResult<&'a mut [u8]> {
         insert_bytes(dst, self.as_bytes()).map_err(|n| EncodeError::Needed(n))
@@ -135,6 +138,7 @@ impl EncodeIntoBounded for &[u8] {
     }
 }
 
+#[cfg(feature = "ascii")]
 impl EncodeIntoBounded for &[AsciiChar] {
     fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> EncodeResult<&'a mut [u8]> {
         insert_bytes(dst, &self.as_bytes()[..len]).map_err(|n| EncodeError::Needed(n))
@@ -225,8 +229,10 @@ impl<'a> DecodeInto<'a> for &'a [u8] {
     }
 }
 
+#[cfg(feature = "ascii")]
 impl<'a> DecodeIntoBounded<'a> for &'a [AsciiChar] {}
 
+#[cfg(feature = "ascii")]
 impl<'a> DecodeInto<'a> for &'a [AsciiChar] {
     fn decode_from(input: &'a [u8]) -> DecodeResult<(&'a [u8], Self)> {
         Ok((&[], input.as_ascii().ok_or(DecodeError::Badness)?))
