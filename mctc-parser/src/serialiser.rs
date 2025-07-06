@@ -28,13 +28,11 @@ impl Serialisable<'_> for Header {
             return Err(Ok(HEADER_LEN - dst.len()));
         }
 
-        // TODO: Correct length (assumes 1 byte despite variable header size)
-        let content_len = (HEADER_LEN - HEADER_CONTENTS) as u64; // Exclude MagicBytes & Length
         dst.encode::<[u8; 4]>(MAGIC_BYTES).map_err(infallible)?;
-        dst.encode(PVarint::from(content_len)).map_err(infallible)?;
+        dst.encode(PVarint::new(HEADER_CONTENTS as u64)).map_err(infallible)?;
         dst.encode(self.version.0).map_err(infallible)?;
         dst.encode(self.version.1).map_err(infallible)?;
-        dst.encode(Guard::from(content_len)).map_err(infallible)?;
+        dst.encode(Guard::from(HEADER_CONTENTS as u8)).map_err(infallible)?;
 
         Ok(buf_len - dst.len())
     }
@@ -85,7 +83,7 @@ impl Serialisable<'_> for RecordMeta {
         let mut dst = buf;
         let len = self.length as u64;
 
-        dst.encode(PVarint::from(len)).map_err(infallible)?;
+        dst.encode(PVarint::new(len)).map_err(infallible)?;
         if len != RECORD_EOS {
             dst.encode(self.source_id).map_err(infallible)?;
             dst.encode(self.type_id).map_err(infallible)?;

@@ -1,6 +1,8 @@
 use std::convert::Infallible;
 
-use crate::io::{SerialiseExt, DecodeResult, EncodeResult, Serialisable, SerialisableVariable, SerialiseError};
+use crate::io::{
+    DecodeResult, EncodeResult, Serialisable, SerialiseError, SerialiseExt,
+};
 
 pub fn infallible<E>(err: SerialiseError<Infallible>) -> SerialiseError<E> {
     Ok(err.unwrap())
@@ -58,62 +60,75 @@ impl Serialisable<'_> for Guard {
     }
 }
 
-// TODO: Treat PVarint like Guard (creates value upon insertion PVarint([u8; 9]))
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub struct PVarint(u64);
-
-impl From<u64> for PVarint {
-    fn from(value: u64) -> Self {
-        PVarint(value)
-    }
-}
-
-impl From<PVarint> for u64 {
-    fn from(value: PVarint) -> Self {
-        value.0
-    }
-}
+#[derive(Debug, PartialEq)]
+pub struct PVarint([u8; 9]);
 
 impl PVarint {
-    pub fn get(&self) -> u64 {
-        self.0
+    pub fn new(val: u64) -> Self {
+        PVarint(Self::encode(val))
     }
-}
 
-impl Serialisable<'_> for PVarint {
-    type Err = Infallible;
+    pub fn get(&self) -> u64 {
+        Self::decode_impl(self.as_slice())
+    }
 
-    fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
+    pub fn as_slice(&self) -> &[u8] {
+        let len = self.0[0].trailing_zeros() as usize;
+        &self.0[..=len]
+    }
+
+    pub fn from_slice(raw: &[u8]) -> Option<Self> {
+        if PVarint::len_from_tag(*raw.get(0)?) > raw.len() {
+            return None
+        }
+        let mut dst = [0; 9];
+        dst[..raw.len()].copy_from_slice(raw);
+        Some(PVarint(dst))
+    }
+
+    pub fn len(&self) -> usize {
+        Self::len_from_tag(self.0[0])
+    }
+
+    pub fn len_from_tag(tag: u8) -> usize {
+        tag.trailing_zeros() as usize + 1
+    }
+
+    pub fn encode(val: u64) -> [u8; 9] {
         let mut out = [0u8; 9];
-        let value = self.get();
-        let zeros = value.leading_zeros();
+        let zeros = val.leading_zeros();
 
         // Catch empty u64
         if zeros == 64 {
-            0x01u8.encode_into(buf)
+            out
         // Catch full u64
         } else if zeros == 0 {
-            out[1..].copy_from_slice(&value.to_le_bytes());
-            out.encode_into(buf)
+            out[1..].copy_from_slice(&val.to_le_bytes());
+            out
         // Catch var u64
         } else {
             let bytes = 8 - ((zeros - 1) / 7) as usize;
-            let data = value << bytes + 1;
+            let data = val << bytes + 1;
             out[..=bytes].copy_from_slice(&data.to_le_bytes()[..=bytes]);
             out[0] |= if bytes >= 8 { 0 } else { 0x01 << bytes };
-            (out.as_slice()).encode_into(buf, bytes)
+            out
         }
     }
 
-    fn decode_from(buf: &[u8]) -> DecodeResult<Self, Self::Err> {
-        let mut src = buf;
-        let tag = src.decode::<u8>()?;
-        let len = tag.trailing_zeros() as usize;
-        let data_slice = src.decode_len::<&[u8]>(len)?;
+    pub fn decode(val: &[u8]) -> Option<u64> {
+        let len = val.get(0)?.trailing_zeros() as usize;
+        Some(Self::decode_impl(val.get(..=len)?))
+    }
 
-        let mut data = [0; 8];
-        data[..len].copy_from_slice(&data_slice[..len]);
-        let data = u64::from_le_bytes(data);
+    fn decode_impl(val: &[u8]) -> u64 {
+        let tag = val[0];
+        let data = &val[1..];
+        let len = val.len() - 1;
+        let mut out = [0; 8];
+
+        out[..len].copy_from_slice(&data);
+        let data = u64::from_le_bytes(out);
+
         let out = if len < 7 {
             // Catch tag w/data (0bXXXXXXX1...0bX100000)
             let remainder = tag >> (len + 1); // Remove guard bit
@@ -123,7 +138,24 @@ impl Serialisable<'_> for PVarint {
             data
         };
 
-        Ok((buf.len() - src.len(), PVarint(out)))
+        out
+    }
+}
+
+
+impl<'a> Serialisable<'a> for PVarint {
+    type Err = Infallible;
+
+    fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
+        self.as_slice().encode_into(buf)
+    }
+
+    fn decode_from(buf: &'a [u8]) -> DecodeResult<Self, Self::Err> {
+        let mut src = buf;
+        let tag = src.decode_peek::<u8>()?;
+        let data = src.decode_len::<&[u8]>(PVarint::len_from_tag(tag))?;
+        let val = PVarint::from_slice(data).unwrap(); // SAFETY: slice length == PVarint::len_from_tag
+        Ok((buf.len() - src.len(), val))
     }
 }
 
@@ -131,23 +163,51 @@ impl Serialisable<'_> for PVarint {
 pub(crate) mod test {
     use super::*;
 
-    // #[test]
-    // fn codec_pvarint() {
-    //     fn prefixed_array<const N: usize>(prefix: u8) -> [u8; N] {
-    //         assert!(N > 0 && N <= 9, "invalid range");
-    //         let mut buf = [0xFF; N];
-    //         buf[0] = prefix;
-    //         buf
-    //     }
-    //     codec_harness_sized(&prefixed_array::<1>(0xFF), 1, PVarint(127)); // 2^7 - 1
-    //     codec_harness_sized(&prefixed_array::<2>(0xFE), 2, PVarint(16383)); // 2^14 - 1
-    //     codec_harness_sized(&prefixed_array::<3>(0xFC), 3, PVarint(2097151)); // 2^21 - 1
-    //     codec_harness_sized(&prefixed_array::<4>(0xF8), 4, PVarint(268435455)); // 2^28 - 1
-    //     codec_harness_sized(&prefixed_array::<5>(0xF0), 5, PVarint(34359738367)); // 2^35 - 1
-    //     codec_harness_sized(&prefixed_array::<6>(0xE0), 6, PVarint(4398046511103)); // 2^42 - 1
-    //     codec_harness_sized(&prefixed_array::<7>(0xC0), 7, PVarint(562949953421311)); // 2^49 - 1
-    //     codec_harness_sized(&prefixed_array::<8>(0x80), 8, PVarint(72057594037927935)); // 2^56 - 1
-    //     codec_harness_sized(&prefixed_array::<9>(0x00), 9, PVarint(18446744073709551615));
-    //     // 2^64
-    // }
+    #[test]
+    fn pvarint_api() {
+        fn harness(val: u64) {
+            let enc = PVarint::encode(val);
+            let dec = PVarint::decode(enc.as_slice());
+            assert_eq!(val, dec.expect("invalid slice"), "failed to manually encode/decode");
+            let pv = PVarint::new(val);
+            assert_eq!(val, pv.get(), "failed to implicitly encode/decode");
+            assert_eq!(val, dec.expect("invalid slice"), "failed to compare manual/implicit");
+        }
+
+        harness(127);
+        harness(16383);
+        harness(2097151);
+        harness(268435455);
+        harness(34359738367);
+        harness(4398046511103);
+        harness(562949953421311);
+        harness(72057594037927935);
+        harness(18446744073709551615);
+    }
+
+    #[test]
+    fn pvarint_codec() {
+        fn harness(val: u64) {
+            let pv = PVarint::new(val);
+            let mut buf = [0; 9];
+
+            let wrote = pv.encode_into(&mut buf).unwrap();
+            assert_eq!(wrote, pv.len(), "incorrect amount of bytes written");
+            assert_eq!(buf, pv.0, "data mismatch");
+
+            let (read, val) = <PVarint>::decode_from(&buf).unwrap();
+            assert_eq!(read, pv.len(), "incorrect amount of bytes read");
+            assert_eq!(val, pv, "data mismatch");
+        }
+
+        harness(127);
+        harness(16383);
+        harness(2097151);
+        harness(268435455);
+        harness(34359738367);
+        harness(4398046511103);
+        harness(562949953421311);
+        harness(72057594037927935);
+        harness(18446744073709551615);
+    }
 }

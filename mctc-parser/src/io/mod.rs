@@ -35,8 +35,8 @@ where
     Self: Sized,
 {
     type Err: std::error::Error;
-    fn encode_into(&self, buf: &mut [u8], len: usize) -> EncodeResult<Self::Err>;
-    fn decode_from(buf: &'a [u8], len: usize) -> DecodeResult<Self, Self::Err>;
+    fn encode_into_len(&self, buf: &mut [u8], len: usize) -> EncodeResult<Self::Err>;
+    fn decode_from_len(buf: &'a [u8], len: usize) -> DecodeResult<Self, Self::Err>;
 }
 
 impl<const N: usize> Serialisable<'_> for [u8; N]
@@ -46,30 +46,45 @@ where
     type Err = Infallible;
 
     fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
-        let dst = buf.get_mut(..N).ok_or_else(|| Ok(N))?;
+        let dst = buf.get_mut(..N).ok_or_else(|| Ok(N))?; // TODO: Incorrect 'needed' value
         dst.copy_from_slice(&self[..N]);
         Ok(N)
     }
 
     fn decode_from(buf: &[u8]) -> DecodeResult<Self, Self::Err> {
         let mut out = Self::default();
-        let src = buf.get(..N).ok_or_else(|| Ok(N))?;
+        let src = buf.get(..N).ok_or_else(|| Ok(N))?; // TODO: Incorrect 'needed' value
         out[..N].copy_from_slice(src);
         Ok((N, out))
+    }
+}
+
+impl<'a> Serialisable<'a> for &'a [u8] {
+    type Err = Infallible;
+
+    fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
+        let len = self.len();
+        let dst = buf.get_mut(..len).ok_or_else(|| Ok(len))?; // TODO: Incorrect 'needed' value
+        dst.copy_from_slice(&self[..len]);
+        Ok(len)
+    }
+
+    fn decode_from(buf: &'a [u8]) -> DecodeResult<Self, Self::Err> {
+        Ok((buf.len(), buf))
     }
 }
 
 impl<'a> SerialisableVariable<'a> for &'a [u8] {
     type Err = Infallible;
 
-    fn encode_into(&self, buf: &mut [u8], len: usize) -> EncodeResult<Self::Err> {
-        let dst = buf.get_mut(..len).ok_or_else(|| Ok(len))?;
+    fn encode_into_len(&self, buf: &mut [u8], len: usize) -> EncodeResult<Self::Err> {
+        let dst = buf.get_mut(..len).ok_or_else(|| Ok(len))?; // TODO: Incorrect 'needed' value
         dst.copy_from_slice(&self[..len]);
         Ok(len)
     }
 
-    fn decode_from(buf: &'a [u8], len: usize) -> DecodeResult<Self, Self::Err> {
-        let src = buf.get(..len).ok_or_else(|| Ok(len))?;
+    fn decode_from_len(buf: &'a [u8], len: usize) -> DecodeResult<Self, Self::Err> {
+        let src = buf.get(..len).ok_or_else(|| Ok(len))?; // TODO: Incorrect 'needed' value
         Ok((len, src))
     }
 }
@@ -113,6 +128,9 @@ pub trait SerialiseExt<'a> {
     fn decode_len<T>(self: &mut &'a Self, len: usize) -> DecodeExtResult<T, T::Err>
     where
         T: SerialisableVariable<'a>;
+    fn decode_peek<T>(&'a self) -> DecodeExtResult<T, T::Err>
+    where
+        T: Serialisable<'a>;
     fn skip(self: &mut &'a Self, len: usize) -> Result<(), Result<usize, Infallible>>;
 }
 
@@ -132,7 +150,7 @@ impl<'a> SerialiseExt<'a> for [u8] {
         T: SerialisableVariable<'a>,
     {
         let buf = std::mem::take(self);
-        let written = val.encode_into(buf, len)?;
+        let written = val.encode_into_len(buf, len)?;
         *self = &mut buf[written..];
         Ok(())
     }
@@ -150,9 +168,16 @@ impl<'a> SerialiseExt<'a> for [u8] {
     where
         T: SerialisableVariable<'a>,
     {
-        let (read, val) = T::decode_from(self, len)?;
+        let (read, val) = T::decode_from_len(self, len)?;
         *self = &self[read..];
         Ok(val)
+    }
+    
+    fn decode_peek<T>(&'a self) -> DecodeExtResult<T, T::Err>
+    where
+        T: Serialisable<'a> {
+            let (_, val) = T::decode_from(self)?;
+            Ok(val)
     }
 
     fn skip(self: &mut &'a Self, len: usize) -> Result<(), Result<usize, Infallible>> {
