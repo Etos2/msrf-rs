@@ -18,8 +18,16 @@ impl Guard {
         self.0
     }
 
-    pub fn generate(bytes: &[u8]) -> u8 {
-        !(bytes.iter().fold(0u8, |b, acc| acc ^ b))
+    pub const fn generate(bytes: &[u8]) -> u8 {
+        let mut out = 0;
+        let mut i = 0;
+        let len = bytes.len();
+
+        while i != len {
+            out ^= bytes[i];
+            i += 1;
+        }
+        out
     }
 }
 
@@ -98,11 +106,10 @@ impl Serialisable<'_> for PVarint {
     }
 
     fn decode_from(buf: &[u8]) -> DecodeResult<Self, Self::Err> {
-        let mut buf = buf;
-        let tag = u8::decode_from(&buf[..1]);
-        let tag = buf.decode::<u8>()?;
+        let mut src = buf;
+        let tag = src.decode::<u8>()?;
         let len = tag.trailing_zeros() as usize;
-        let data_slice = buf.decode_len::<&[u8]>(len)?;
+        let data_slice = src.decode_len::<&[u8]>(len)?;
 
         let mut data = [0; 8];
         data[..len].copy_from_slice(&data_slice[..len]);
@@ -116,7 +123,7 @@ impl Serialisable<'_> for PVarint {
             data
         };
 
-        Ok((buf.len(), PVarint(out)))
+        Ok((buf.len() - src.len(), PVarint(out)))
     }
 }
 

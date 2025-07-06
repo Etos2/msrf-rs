@@ -2,8 +2,8 @@ use crate::{
     data::{Header, RecordMeta},
     error::CodecError,
     io::{
-        util::{infallible, Guard, PVarint},
         DecodeResult, EncodeResult, Serialisable, SerialiseExt,
+        util::{Guard, PVarint, infallible},
     },
 };
 
@@ -21,51 +21,55 @@ impl Serialisable<'_> for Header {
     type Err = CodecError;
 
     fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
-        let mut buf = buf;
-        if HEADER_LEN > buf.len() {
-            return Err(Ok(HEADER_LEN - buf.len()));
+        let buf_len = buf.len();
+        let mut dst = buf;
+
+        if HEADER_LEN > dst.len() {
+            return Err(Ok(HEADER_LEN - dst.len()));
         }
 
         // TODO: Correct length (assumes 1 byte despite variable header size)
         let content_len = (HEADER_LEN - HEADER_CONTENTS) as u64; // Exclude MagicBytes & Length
-        buf.encode::<[u8; 4]>(MAGIC_BYTES).map_err(infallible)?;
-        buf.encode(PVarint::from(content_len)).map_err(infallible)?;
-        buf.encode(self.version.0).map_err(infallible)?;
-        buf.encode(self.version.1).map_err(infallible)?;
-        buf.encode(Guard::from(content_len)).map_err(infallible)?;
+        dst.encode::<[u8; 4]>(MAGIC_BYTES).map_err(infallible)?;
+        dst.encode(PVarint::from(content_len)).map_err(infallible)?;
+        dst.encode(self.version.0).map_err(infallible)?;
+        dst.encode(self.version.1).map_err(infallible)?;
+        dst.encode(Guard::from(content_len)).map_err(infallible)?;
 
-        Ok(buf.len())
+        Ok(buf_len - dst.len())
     }
 
     fn decode_from(buf: &[u8]) -> DecodeResult<Self, Self::Err> {
-        let mut buf = buf;
-        if HEADER_LEN > buf.len() {
-            return Err(Ok(HEADER_LEN - buf.len()));
+        let mut src = buf;
+        if HEADER_LEN > src.len() {
+            return Err(Ok(HEADER_LEN - src.len()));
         }
 
-        let magic_bytes = buf.decode::<[u8; 4]>().map_err(infallible)?;
+        let magic_bytes = src.decode::<[u8; 4]>().map_err(infallible)?;
         if magic_bytes != MAGIC_BYTES {
             return Err(Err(CodecError::Badness));
         }
 
-        let length = buf.decode::<PVarint>().map_err(infallible)?.get();
+        let length = src.decode::<PVarint>().map_err(infallible)?.get();
         // TODO: handle versions (especially MAJOR version)
-        let major = buf.decode::<u8>().map_err(infallible)?;
-        let minor = buf.decode::<u8>().map_err(infallible)?;
+        let major = src.decode::<u8>().map_err(infallible)?;
+        let minor = src.decode::<u8>().map_err(infallible)?;
 
         // Skip additional header data
         // TODO: Check if length is truncated when usize is  < 64bit
-        if let Some(unknown) = (length as usize).checked_sub(HEADER_CONTENTS) {
-            buf.skip(unknown).map_err(infallible)?;
+        if let Some(unknown) = (length as usize).checked_sub(HEADER_CONTENTS)
+            && unknown != 0
+        {
+            src.skip(unknown).map_err(infallible)?;
         }
 
-        let guard = buf.decode::<u8>().map_err(infallible)?;
+        let guard = src.decode::<u8>().map_err(infallible)?;
         if guard != Guard::generate(&length.to_le_bytes()) {
             return Err(Err(CodecError::Badness));
         }
 
         Ok((
-            buf.len(),
+            buf.len() - src.len(),
             Header {
                 version: (major, minor),
             },
@@ -77,34 +81,35 @@ impl Serialisable<'_> for RecordMeta {
     type Err = CodecError;
 
     fn encode_into(&self, buf: &mut [u8]) -> crate::io::EncodeResult<Self::Err> {
-        let mut buf = buf;
+        let buf_len = buf.len();
+        let mut dst = buf;
         let len = self.length as u64;
 
-        buf.encode(PVarint::from(len)).map_err(infallible)?;
+        dst.encode(PVarint::from(len)).map_err(infallible)?;
         if len != RECORD_EOS {
-            buf.encode(self.source_id).map_err(infallible)?;
-            buf.encode(self.type_id).map_err(infallible)?;
+            dst.encode(self.source_id).map_err(infallible)?;
+            dst.encode(self.type_id).map_err(infallible)?;
         }
 
-        Ok(buf.len())
+        Ok(buf_len - dst.len())
     }
 
     fn decode_from(buf: &[u8]) -> crate::io::DecodeResult<Self, Self::Err> {
-        let mut buf = buf;
+        let mut src = buf;
 
-        let length = buf.decode::<PVarint>().map_err(infallible)?.get() as usize;
+        let length = src.decode::<PVarint>().map_err(infallible)?.get() as usize;
         match length {
             // 0 = End Of Stream indicator
-            0 => Ok((buf.len(), RecordMeta::new_eos())),
+            0 => Ok((src.len(), RecordMeta::new_eos())),
             // Len invariance, must be long enough to contain IDs
             1..RECORD_META_LEN => Err(Err(CodecError::Badness)),
             // Contains contents + zero/some data
             RECORD_META_LEN.. => {
-                let source_id = buf.decode::<u16>().map_err(infallible)?;
-                let type_id = buf.decode::<u16>().map_err(infallible)?;
+                let source_id = src.decode::<u16>().map_err(infallible)?;
+                let type_id = src.decode::<u16>().map_err(infallible)?;
 
                 Ok((
-                    buf.len(),
+                    buf.len() - src.len(),
                     RecordMeta {
                         length,
                         source_id,
@@ -120,35 +125,21 @@ impl Serialisable<'_> for RecordMeta {
 mod test {
     use super::*;
 
-    pub fn ref_header() -> Header {
-        Header { version: (1, 2) }
-    }
-
-    pub fn ref_header_bytes() -> Vec<u8> {
-        let mut data = Vec::new();
-
-        // Header
-        data.extend_from_slice(&MAGIC_BYTES); // Magic bytes
-        data.extend_from_slice(&0b111_u8.to_le_bytes()); // Length Pvarint(3)
-        data.extend_from_slice(&1_u8.to_le_bytes()); // Version (Major)
-        data.extend_from_slice(&2_u8.to_le_bytes()); // Version (Minor)
-        data.extend_from_slice(&Guard::generate(&3u8.to_le_bytes()).to_le_bytes()); // Guard
-
-        data
-    }
+    const REF_HEADER: Header = Header { version: (1, 2) };
+    const REF_HEADER_BYTES: &[u8; 8] = constcat::concat_bytes!(
+        &MAGIC_BYTES,                           // Magic bytes
+        &[0b111_u8],                            // Length Pvarint(3)
+        &[1_u8, 2_u8],                          // Version (Major, Minor)
+        &[Guard::generate(&3u8.to_le_bytes())]  // Guard
+    );
 
     #[test]
     fn decode_header() {
-        let header = ref_header();
-        let header_bytes = ref_header_bytes();
-
-        assert_eq!(header_bytes.len(), 8);
-        let mut data = header_bytes.as_slice();
+        let mut data = REF_HEADER_BYTES.as_slice();
         let output = data.decode::<Header>().unwrap();
 
         // Verify decode
-        assert_eq!(header, output);
-
+        assert_eq!(REF_HEADER, output);
         // Verify all data is read
         assert_eq!(data.len(), 0);
     }
