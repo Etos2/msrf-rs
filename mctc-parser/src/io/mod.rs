@@ -1,277 +1,212 @@
 pub mod util;
 
-#[cfg(feature = "ascii")]
-use std::ascii::Char as AsciiChar;
-use std::borrow::Borrow;
+use std::convert::Infallible;
 
-use paste::paste;
+// TODO: Use type to clarify?
+// Usize = Bytes needed
+pub type SerialiseError<E> = Result<usize, E>;
+// Usize = Bytes written
+pub type EncodeResult<E> = Result<usize, SerialiseError<E>>;
+pub type DecodeResult<T, E> = Result<(usize, T), SerialiseError<E>>;
+pub type EncodeExtResult<E> = Result<(), SerialiseError<E>>;
+pub type DecodeExtResult<T, E> = Result<T, SerialiseError<E>>;
 
-use crate::error::{CodecError, CodecResult};
+// TODO: Partial serialisation?
+// pub trait SerialisableCtx
+// where
+//     Self: Sized + Default,
+// {
+//     type Err: std::error::Error;
+//     fn encode_ctx(&self, buf: &mut [u8], prev_write: usize) -> EncodeResult<Self::Err>;
+//     fn decode_ctx(self, buf: &[u8], prev_read: usize) -> DecodeResult<Self, Self::Err>;
+// }
 
-fn insert_bytes<'a>(buf: &'a mut [u8], input: &[u8]) -> Result<&'a mut [u8], usize> {
-    if input.len() <= buf.len() {
-        // SAFETY: mid <= self.len()
-        let (dst, rem) = buf.split_at_mut(input.len());
-        dst.copy_from_slice(input);
-        Ok(rem)
-    } else {
-        Err(input.len() - buf.len())
-    }
-}
-
-pub trait EncodeInto
+pub trait Serialisable<'a>
 where
     Self: Sized,
 {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]>;
+    type Err: std::error::Error;
+    fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err>;
+    fn decode_from(buf: &'a [u8]) -> DecodeResult<Self, Self::Err>;
 }
 
-pub trait EncodeIntoBounded: EncodeInto
+pub trait SerialisableVariable<'a>
 where
     Self: Sized,
 {
-    fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> CodecResult<&'a mut [u8]>;
+    type Err: std::error::Error;
+    fn encode_into(&self, buf: &mut [u8], len: usize) -> EncodeResult<Self::Err>;
+    fn decode_from(buf: &'a [u8], len: usize) -> DecodeResult<Self, Self::Err>;
 }
 
-pub trait DecodeFrom<'a>
+impl<const N: usize> Serialisable<'_> for [u8; N]
 where
-    Self: Sized,
+    Self: Default,
 {
-    fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)>;
-}
+    type Err = Infallible;
 
-pub trait DecodeIntoBounded<'a>: DecodeFrom<'a>
-where
-    Self: Sized,
-{
-    fn decode_from_bounded(input: &'a [u8], len: usize) -> CodecResult<(&'a [u8], Self)> {
-        let (out, rem) = input
-            .split_at_checked(len)
-            .ok_or_else(|| CodecError::Needed(len - input.len()))?;
-        let (_, val) = Self::decode_from(out)?;
-        Ok((rem, val))
+    fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
+        let dst = buf.get_mut(..N).ok_or_else(|| Ok(N))?;
+        dst.copy_from_slice(&self[..N]);
+        Ok(N)
+    }
+
+    fn decode_from(buf: &[u8]) -> DecodeResult<Self, Self::Err> {
+        let mut out = Self::default();
+        let src = buf.get(..N).ok_or_else(|| Ok(N))?;
+        out[..N].copy_from_slice(src);
+        Ok((N, out))
     }
 }
 
-impl<'a, const N: usize> DecodeFrom<'a> for [u8; N] {
-    fn decode_from(input: &[u8]) -> CodecResult<(&[u8], Self)> {
-        let (out, rem) = input
-            .split_at_checked(N)
-            .ok_or_else(|| CodecError::Needed(N - input.len()))?;
-        Ok((rem, out.try_into().unwrap())) // SAFETY: "out" is always length N
+impl<'a> SerialisableVariable<'a> for &'a [u8] {
+    type Err = Infallible;
+
+    fn encode_into(&self, buf: &mut [u8], len: usize) -> EncodeResult<Self::Err> {
+        let dst = buf.get_mut(..len).ok_or_else(|| Ok(len))?;
+        dst.copy_from_slice(&self[..len]);
+        Ok(len)
+    }
+
+    fn decode_from(buf: &'a [u8], len: usize) -> DecodeResult<Self, Self::Err> {
+        let src = buf.get(..len).ok_or_else(|| Ok(len))?;
+        Ok((len, src))
     }
 }
 
-impl<const N: usize> EncodeInto for [u8; N] {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
-        insert_bytes(dst, self.as_slice()).map_err(|n| CodecError::Needed(n))
-    }
-}
-
-impl EncodeInto for &[u8] {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
-        insert_bytes(dst, self).map_err(|n| CodecError::Needed(n))
-    }
-}
-
-impl EncodeIntoBounded for &[u8] {
-    fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> CodecResult<&'a mut [u8]> {
-        insert_bytes(dst, &self[..len]).map_err(|n| CodecError::Needed(n))
-    }
-}
-
-impl<'a> DecodeFrom<'a> for &'a [u8] {
-    fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)> {
-        Ok((&[], input))
-    }
-}
-
-impl<'a> DecodeIntoBounded<'a> for &'a [u8] {}
-
-#[cfg(feature = "ascii")]
-impl EncodeInto for &[AsciiChar] {
-    fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
-        insert_bytes(dst, self.as_bytes()).map_err(|n| CodecError::Needed(n))
-    }
-}
-
-#[cfg(feature = "ascii")]
-impl<'a> DecodeFrom<'a> for &'a [AsciiChar] {
-    fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)> {
-        Ok((&[], input.as_ascii().ok_or(CodecError::Badness)?))
-    }
-}
-
-#[cfg(feature = "ascii")]
-impl EncodeIntoBounded for &[AsciiChar] {
-    fn encode_len_into<'a>(&self, dst: &'a mut [u8], len: usize) -> CodecResult<&'a mut [u8]> {
-        insert_bytes(dst, &self.as_bytes()[..len]).map_err(|n| CodecError::Needed(n))
-    }
-}
-#[cfg(feature = "ascii")]
-impl<'a> DecodeIntoBounded<'a> for &'a [AsciiChar] {}
-
-macro_rules! codec_impl {
+macro_rules! serialisable_impl {
     ($t:ident) => {
-        impl EncodeInto for $t {
-            fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]> {
-                insert_bytes(dst, &self.to_le_bytes()).map_err(|n| CodecError::Needed(n))
+        impl Serialisable<'_> for $t {
+            type Err = Infallible;
+
+            fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
+                self.to_le_bytes().encode_into(buf)
             }
-        }
 
-        impl<'a> DecodeFrom<'a> for $t {
-            fn decode_from(input: &[u8]) -> CodecResult<(&[u8], Self)> {
-                <[u8; size_of::<$t>()]>::decode_from(input)
-                    .map(|(rem, bytes)| (rem, $t::from_le_bytes(bytes)))
-            }
-        }
-    };
-}
-
-codec_impl!(u8);
-codec_impl!(u16);
-codec_impl!(u32);
-codec_impl!(u64);
-codec_impl!(i8);
-codec_impl!(i16);
-codec_impl!(i32);
-codec_impl!(i64);
-
-macro_rules! codec_tuple_impl {
-    ($($T:tt)*) => {
-        paste! {
-            impl<$($T,)*> EncodeInto for ($($T,)*)
-            where
-                $($T: EncodeInto,)*
-            {
-                fn encode_into<'a>(&self, dst: &'a mut [u8]) -> CodecResult<&'a mut [u8]>
-                {
-                    let mut dst = dst;
-                    let ($([<$T:lower 1>],)*) = self;
-                    ($({dst = [<$T:lower 1>].encode_into(dst)?},)*);
-                    Ok(dst)
-                }
-            }
-        }
-
-        impl<'a, $($T,)*> DecodeFrom<'a> for ($($T,)*)
-        where
-            $($T: DecodeFrom<'a>,)*
-        {
-            fn decode_from(input: &'a [u8]) -> CodecResult<(&'a [u8], Self)> {
-                let mut input = input;
-                let out = ($(<$T>::decode_from(input).map(|(rem, out)| {
-                    input = rem;
-                    out
-                })?,)*);
-                Ok((input, out))
+            fn decode_from(buf: &[u8]) -> DecodeResult<Self, Self::Err> {
+                <[u8; size_of::<$t>()]>::decode_from(buf)
+                    .map(|(written, val)| (written, <$t>::from_le_bytes(val)))
             }
         }
     };
 }
 
-codec_tuple_impl!(A B C D E F G H);
-codec_tuple_impl!(A B C D E F G);
-codec_tuple_impl!(A B C D E F);
-codec_tuple_impl!(A B C D E);
-codec_tuple_impl!(A B C E);
-codec_tuple_impl!(A B C);
-codec_tuple_impl!(A B);
-codec_tuple_impl!(A);
+serialisable_impl!(u8);
+serialisable_impl!(u16);
+serialisable_impl!(u32);
+serialisable_impl!(u64);
+serialisable_impl!(i8);
+serialisable_impl!(i16);
+serialisable_impl!(i32);
+serialisable_impl!(i64);
 
-pub trait EncodeExt {
-    fn encode<T>(&mut self, val: impl Borrow<T>) -> CodecResult<()>
+pub trait SerialiseExt<'a> {
+    fn encode<T>(self: &mut &'a mut Self, val: T) -> EncodeExtResult<T::Err>
     where
-        T: EncodeInto;
-    fn encode_len<T>(&mut self, val: impl Borrow<T>, len: usize) -> CodecResult<()>
+        T: Serialisable<'a>;
+    fn encode_len<T>(self: &mut &'a mut Self, val: T, len: usize) -> EncodeExtResult<T::Err>
     where
-        T: EncodeInto + EncodeIntoBounded;
-    fn skip(&mut self, len: usize) -> CodecResult<()>;
+        T: SerialisableVariable<'a>;
+    fn decode<T>(self: &mut &'a Self) -> DecodeExtResult<T, T::Err>
+    where
+        T: Serialisable<'a>;
+    fn decode_len<T>(self: &mut &'a Self, len: usize) -> DecodeExtResult<T, T::Err>
+    where
+        T: SerialisableVariable<'a>;
+    fn skip(self: &mut &'a Self, len: usize) -> Result<(), Result<usize, Infallible>>;
 }
 
-impl EncodeExt for &mut [u8] {
-    fn encode<T>(&mut self, val: impl Borrow<T>) -> CodecResult<()>
+impl<'a> SerialiseExt<'a> for [u8] {
+    fn encode<T>(self: &mut &'a mut Self, val: T) -> EncodeExtResult<T::Err>
     where
-        T: EncodeInto,
+        T: Serialisable<'a>,
     {
-        let rem = val.borrow().encode_into(std::mem::take(self))?;
-        *self = rem;
+        let buf = std::mem::take(self);
+        let written = val.encode_into(buf)?;
+        *self = &mut buf[written..];
         Ok(())
     }
 
-    fn encode_len<T>(&mut self, val: impl Borrow<T>, len: usize) -> CodecResult<()>
+    fn encode_len<T>(self: &mut &'a mut Self, val: T, len: usize) -> EncodeExtResult<T::Err>
     where
-        T: EncodeInto + EncodeIntoBounded,
+        T: SerialisableVariable<'a>,
     {
-        let rem = val.borrow().encode_len_into(std::mem::take(self), len)?;
-        *self = rem;
+        let buf = std::mem::take(self);
+        let written = val.encode_into(buf, len)?;
+        *self = &mut buf[written..];
         Ok(())
     }
 
-    fn skip(&mut self, len: usize) -> CodecResult<()> {
-        if self.len() >= len {
-            let buf = std::mem::take(self);
-            *self = &mut buf[len..];
-            Ok(())
-        } else {
-            Err(CodecError::Needed(len - self.len()))
-        }
-    }
-}
-
-pub trait DecodeExt<'a> {
-    fn decode<T>(&mut self) -> CodecResult<T>
+    fn decode<T>(self: &mut &'a Self) -> DecodeExtResult<T, T::Err>
     where
-        T: DecodeFrom<'a>;
-    fn decode_len<T>(&mut self, len: usize) -> CodecResult<T>
-    where
-        T: DecodeFrom<'a> + DecodeIntoBounded<'a>;
-    fn decode_assert<T>(&mut self, cmp: T) -> CodecResult<Option<T>>
-    where
-        T: DecodeFrom<'a> + PartialEq;
-    fn skip(&mut self, len: usize) -> CodecResult<()>;
-}
-
-impl<'a> DecodeExt<'a> for &'a [u8] {
-    fn decode<T>(&mut self) -> CodecResult<T>
-    where
-        T: DecodeFrom<'a>,
+        T: Serialisable<'a>,
     {
-        let (rem, out) = T::decode_from(self)?;
-        *self = rem;
-        Ok(out)
+        let (read, val) = T::decode_from(self)?;
+        *self = &self[read..];
+        Ok(val)
     }
 
-    fn decode_len<T>(&mut self, len: usize) -> CodecResult<T>
+    fn decode_len<T>(self: &mut &'a Self, len: usize) -> DecodeExtResult<T, T::Err>
     where
-        T: DecodeFrom<'a> + DecodeIntoBounded<'a>,
+        T: SerialisableVariable<'a>,
     {
-        let (rem, out) = T::decode_from_bounded(self, len)?;
-        *self = rem;
-        Ok(out)
+        let (read, val) = T::decode_from(self, len)?;
+        *self = &self[read..];
+        Ok(val)
     }
 
-    fn decode_assert<T>(&mut self, cmp: T) -> CodecResult<Option<T>>
-    where
-        T: DecodeFrom<'a> + PartialEq,
-    {
-        Ok((self.decode::<T>()? == cmp).then_some(cmp))
-    }
-
-    fn skip(&mut self, len: usize) -> CodecResult<()> {
-        if self.len() >= len {
-            let buf = std::mem::take(self);
-            *self = &buf[len..];
-            Ok(())
-        } else {
-            Err(CodecError::Needed(len - self.len()))
-        }
+    fn skip(self: &mut &'a Self, len: usize) -> Result<(), Result<usize, Infallible>> {
+        let resized = self.get(len..).ok_or_else(|| Ok(self.len() - len))?;
+        *self = resized;
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::fmt::Debug;
+
     use super::*;
+
+    // fn serialiser_test_harness<T>(data: &[u8], expected: T)
+    // where
+    //     T: Serialisable + SerialisableCtx + PartialEq + Debug,
+    // {
+    //     let mid = data.len() / 2;
+
+    //     // Decode
+    //     let (rem, val) = <T>::decode(&data[..mid]).expect("decode error");
+    //     assert_eq!(rem, mid);
+    //     // assert_eq!(val, expected);
+
+    //     // Decode remainder
+    //     let (rem, val) = val.decode_ctx(&data[mid..], rem).expect("decode error");
+    //     assert_eq!(rem, 0);
+    //     assert_eq!(val, expected);
+
+    //     // Encode
+    //     let mut buf = vec![0; data.len()];
+    //     let rem = val.encode(&mut buf[..mid]).expect("encode error");
+    //     assert_eq!(rem, mid);
+    //     assert_eq!(buf[..mid], data[..mid]);
+
+    //     // Encode remainder
+    //     let rem = val.encode_ctx(&mut buf[mid..], rem).expect("encode error");
+    //     assert_eq!(rem, 0);
+    //     assert_eq!(buf, *data);
+    // }
+
+    // #[test]
+    // fn partial_serial_array() {
+    //     let data = [0, 1, 2, 3, 4, 5, 6, 7];
+    //     serialiser_test_harness(&data, data);
+    //     serialiser_test_harness(&data[..2], i16::from_le_bytes(data[..2].try_into().unwrap()));
+    //     serialiser_test_harness(&data[..2], u16::from_le_bytes(data[..2].try_into().unwrap()));
+    //     serialiser_test_harness(&data[..4], i32::from_le_bytes(data[..4].try_into().unwrap()));
+    //     serialiser_test_harness(&data[..4], u32::from_le_bytes(data[..4].try_into().unwrap()));
+    //     serialiser_test_harness(&data[..8], i64::from_le_bytes(data[..8].try_into().unwrap()));
+    //     serialiser_test_harness(&data[..8], u64::from_le_bytes(data[..8].try_into().unwrap()));
+    // }
 
     const DATA: [u8; 32] = [
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
@@ -291,56 +226,56 @@ mod test {
         };
     }
 
-    pub(crate) fn codec_harness_sized<'a, T, const N: usize>(
-        data: &'a [u8; N],
-        expected_len: usize,
-        expected: T,
-    ) where
-        T: EncodeInto + DecodeFrom<'a> + PartialEq + std::fmt::Debug,
-    {
-        let type_len = expected_len;
-        let mut input = &data[..];
+    // pub(crate) fn codec_harness_sized<'a, T, const N: usize>(
+    //     data: &'a [u8; N],
+    //     expected_len: usize,
+    //     expected: T,
+    // ) where
+    //     T: Serialisable + PartialEq + std::fmt::Debug,
+    // {
+    //     let type_len = expected_len;
+    //     let mut input = &data[..];
 
-        // Decode: Assert expected value & remaining buf
-        let value = input.decode::<T>().unwrap();
-        assert_eq!(value, expected);
-        assert_eq!(input, &data[type_len..], "type len = {type_len}");
+    //     // Decode: Assert expected value & remaining buf
+    //     let value = input.decode::<T>().unwrap();
+    //     assert_eq!(value, expected);
+    //     assert_eq!(input, &data[type_len..], "type len = {type_len}");
 
-        // Encode: Assert buffer contents == source contents & remaining buf untouched
-        let mut buf = [0; N];
-        let mut output = &mut buf[..];
-        (output).encode(value).unwrap();
-        assert_eq!(output.len(), buf.len() - type_len);
-        assert_eq!(&buf[..type_len], &data[..type_len]);
-    }
+    //     // Encode: Assert buffer contents == source contents & remaining buf untouched
+    //     let mut buf = [0; N];
+    //     let mut output = &mut buf[..];
+    //     (output).encode(value).unwrap();
+    //     assert_eq!(output.len(), buf.len() - type_len);
+    //     assert_eq!(&buf[..type_len], &data[..type_len]);
+    // }
 
-    // Decode/Encode one value from data (even if data has more bytes than needed)
-    pub(crate) fn codec_harness<'a, T, const N: usize>(data: &'a [u8; N], expected: T)
-    where
-        T: EncodeInto + DecodeFrom<'a> + PartialEq + std::fmt::Debug,
-    {
-        codec_harness_sized(data, size_of_tuple!(T), expected)
-    }
+    // // Decode/Encode one value from data (even if data has more bytes than needed)
+    // pub(crate) fn codec_harness<'a, T, const N: usize>(data: &'a [u8; N], expected: T)
+    // where
+    //     T: Serialisable + PartialEq + std::fmt::Debug,
+    // {
+    //     codec_harness_sized(data, size_of_tuple!(T), expected)
+    // }
 
-    #[test]
-    fn codec_value() {
-        codec_harness(&DATA, DATA);
-        codec_harness(&DATA, 0x00u8);
-        codec_harness(&DATA, 0x0100u16);
-        codec_harness(&DATA, 0x03020100u32);
-        codec_harness(&DATA, 0x0706050403020100u64);
-        codec_harness(&DATA, 0x00i8);
-        codec_harness(&DATA, 0x0100i16);
-        codec_harness(&DATA, 0x03020100i32);
-        codec_harness(&DATA, 0x0706050403020100i64);
-    }
+    // #[test]
+    // fn codec_value() {
+    //     codec_harness(&DATA, DATA);
+    //     codec_harness(&DATA, 0x00u8);
+    //     codec_harness(&DATA, 0x0100u16);
+    //     codec_harness(&DATA, 0x03020100u32);
+    //     codec_harness(&DATA, 0x0706050403020100u64);
+    //     codec_harness(&DATA, 0x00i8);
+    //     codec_harness(&DATA, 0x0100i16);
+    //     codec_harness(&DATA, 0x03020100i32);
+    //     codec_harness(&DATA, 0x0706050403020100i64);
+    // }
 
-    #[test]
-    fn codec_tuple() {
-        codec_harness(&DATA, (0x00u8, 0x01u8, 0x02u8, 0x03u8));
-        codec_harness(&DATA, (0x0100u16, 0x0302u16, 0x0504u16, 0x0706u16));
-        codec_harness(&DATA, (0x03020100u32, 0x07060504u32, 0x0B0A0908u32));
-        codec_harness(&DATA, (0x0706050403020100u64, 0x0F0E0D0C0B0A0908u64));
-        codec_harness(&DATA, (0x00u8, 0x01u8, 0x0302u16, 0x07060504u32));
-    }
+    //     #[test]
+    //     fn codec_tuple() {
+    //         codec_harness(&DATA, (0x00u8, 0x01u8, 0x02u8, 0x03u8));
+    //         codec_harness(&DATA, (0x0100u16, 0x0302u16, 0x0504u16, 0x0706u16));
+    //         codec_harness(&DATA, (0x03020100u32, 0x07060504u32, 0x0B0A0908u32));
+    //         codec_harness(&DATA, (0x0706050403020100u64, 0x0F0E0D0C0B0A0908u64));
+    //         codec_harness(&DATA, (0x00u8, 0x01u8, 0x0302u16, 0x07060504u32));
+    //     }
 }

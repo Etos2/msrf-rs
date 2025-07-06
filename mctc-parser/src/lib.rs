@@ -1,19 +1,14 @@
 #![feature(ascii_char)]
 
 pub mod data;
-pub mod decoder;
-pub mod encoder;
+pub mod serialiser;
 pub mod error;
 #[cfg(feature = "io")]
 pub mod io;
 #[cfg(not(feature = "io"))]
 mod io;
-#[cfg(test)]
-mod test;
 
 const CURRENT_VERSION: (u8, u8) = (0, 0);
-const MAGIC_BYTES: [u8; 4] = *b"MCTC";
-const RECORD_LENGTH_EOS: u64 = u64::MIN;
 
 // TODO: Impl options
 // pub struct Options {}

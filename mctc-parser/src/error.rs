@@ -1,4 +1,4 @@
-use std::{error::Error, fmt::Display};
+use std::{convert::Infallible, error::Error, fmt::Display};
 
 pub type CodecResult<T> = Result<T, CodecError>;
 
@@ -19,5 +19,11 @@ impl Display for CodecError {
             CodecError::ExpectedGuard => writeln!(f, "expected guard"),
             CodecError::Badness => writeln!(f, "bad!"),
         }
+    }
+}
+
+impl From<Infallible> for CodecError {
+    fn from(value: Infallible) -> Self {
+        panic!("infallible value should not exist")
     }
 }
