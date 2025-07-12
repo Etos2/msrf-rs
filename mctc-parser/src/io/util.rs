@@ -1,8 +1,6 @@
 use std::convert::Infallible;
 
-use crate::io::{
-    DecodeResult, EncodeResult, Serialisable, SerialiseError, SerialiseExt,
-};
+use crate::io::{DecodeResult, EncodeResult, Serialisable, SerialiseError, SerialiseExt};
 
 pub fn infallible<E>(err: SerialiseError<Infallible>) -> SerialiseError<E> {
     Ok(err.unwrap())
@@ -79,7 +77,7 @@ impl PVarint {
 
     pub fn from_slice(raw: &[u8]) -> Option<Self> {
         if PVarint::len_from_tag(*raw.get(0)?) > raw.len() {
-            return None
+            return None;
         }
         let mut dst = [0; 9];
         dst[..raw.len()].copy_from_slice(raw);
@@ -142,7 +140,6 @@ impl PVarint {
     }
 }
 
-
 impl<'a> Serialisable<'a> for PVarint {
     type Err = Infallible;
 
@@ -167,22 +164,23 @@ pub(crate) mod test {
     fn pvarint_api() {
         fn harness(val: u64) {
             let enc = PVarint::encode(val);
-            let dec = PVarint::decode(enc.as_slice());
-            assert_eq!(val, dec.expect("invalid slice"), "failed to manually encode/decode");
+            let dec = PVarint::decode(enc.as_slice()).expect("invalid input");
+            assert_eq!(val, dec, "failed to manually encode/decode");
+
             let pv = PVarint::new(val);
             assert_eq!(val, pv.get(), "failed to implicitly encode/decode");
-            assert_eq!(val, dec.expect("invalid slice"), "failed to compare manual/implicit");
+            assert_eq!(val, dec, "failed to compare manual/implicit");
         }
 
-        harness(127);
-        harness(16383);
-        harness(2097151);
-        harness(268435455);
-        harness(34359738367);
-        harness(4398046511103);
-        harness(562949953421311);
-        harness(72057594037927935);
-        harness(18446744073709551615);
+        harness(0x7F); // 2^7-1
+        harness(0x3FFF); // 2^14-1
+        harness(0x1FFFFF); // 2^21-1
+        harness(0xFFFFFFF); // 2^28-1
+        harness(0x7FFFFFFFF); // 2^35-1
+        harness(0x3FFFFFFFFFF); // 2^42-1
+        harness(0x1FFFFFFFFFFFF); // 2^49-1
+        harness(0xFFFFFFFFFFFFFF); // 2^56-1
+        harness(0xFFFFFFFFFFFFFFFF); // 2^64
     }
 
     #[test]
@@ -200,14 +198,14 @@ pub(crate) mod test {
             assert_eq!(val, pv, "data mismatch");
         }
 
-        harness(127);
-        harness(16383);
-        harness(2097151);
-        harness(268435455);
-        harness(34359738367);
-        harness(4398046511103);
-        harness(562949953421311);
-        harness(72057594037927935);
-        harness(18446744073709551615);
+        harness(0x7F); // 2^7-1
+        harness(0x3FFF); // 2^14-1
+        harness(0x1FFFFF); // 2^21-1
+        harness(0xFFFFFFF); // 2^28-1
+        harness(0x7FFFFFFFF); // 2^35-1
+        harness(0x3FFFFFFFFFF); // 2^42-1
+        harness(0x1FFFFFFFFFFFF); // 2^49-1
+        harness(0xFFFFFFFFFFFFFF); // 2^56-1
+        harness(0xFFFFFFFFFFFFFFFF); // 2^64
     }
 }
