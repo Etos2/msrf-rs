@@ -1,11 +1,8 @@
 use std::convert::Infallible;
 
-use crate::io::{DecodeResult, EncodeResult, Serialisable, SerialiseError, SerialiseExt};
+use crate::{error::CodecResult, io::{Serialisable, SerialiseExt}};
 
-pub fn infallible<E>(err: SerialiseError<Infallible>) -> SerialiseError<E> {
-    Ok(err.unwrap())
-}
-
+// TODO: Currently the checksum of 'Length', redefine as the checksum of the whole record
 #[derive(Debug)]
 pub struct Guard(u8);
 
@@ -49,11 +46,11 @@ guard_impl!(u8);
 impl Serialisable<'_> for Guard {
     type Err = Infallible;
 
-    fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
+    fn encode_into(&self, buf: &mut [u8]) -> CodecResult<usize> {
         self.0.encode_into(buf)
     }
 
-    fn decode_from(buf: &[u8]) -> DecodeResult<Self, Self::Err> {
+    fn decode_from(buf: &[u8]) -> CodecResult<(usize, Self)> {
         u8::decode_from(buf).map(|(rem, val)| (rem, Guard(val)))
     }
 }
@@ -143,11 +140,11 @@ impl PVarint {
 impl<'a> Serialisable<'a> for PVarint {
     type Err = Infallible;
 
-    fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
+    fn encode_into(&self, buf: &mut [u8]) -> CodecResult<usize> {
         self.as_slice().encode_into(buf)
     }
 
-    fn decode_from(buf: &'a [u8]) -> DecodeResult<Self, Self::Err> {
+    fn decode_from(buf: &'a [u8]) -> CodecResult<(usize, Self)> {
         let mut src = buf;
         let tag = src.decode_peek::<u8>()?;
         let data = src.decode_len::<&[u8]>(PVarint::len_from_tag(tag))?;

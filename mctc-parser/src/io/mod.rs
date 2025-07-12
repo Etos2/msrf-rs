@@ -2,14 +2,7 @@ pub mod util;
 
 use std::convert::Infallible;
 
-// TODO: Use type to clarify?
-// Usize = Bytes needed
-pub type SerialiseError<E> = Result<usize, E>;
-// Usize = Bytes written
-pub type EncodeResult<E> = Result<usize, SerialiseError<E>>;
-pub type DecodeResult<T, E> = Result<(usize, T), SerialiseError<E>>;
-pub type EncodeExtResult<E> = Result<(), SerialiseError<E>>;
-pub type DecodeExtResult<T, E> = Result<T, SerialiseError<E>>;
+use crate::error::{CodecError, CodecResult};
 
 // TODO: Partial serialisation?
 // pub trait SerialisableCtx
@@ -17,8 +10,8 @@ pub type DecodeExtResult<T, E> = Result<T, SerialiseError<E>>;
 //     Self: Sized + Default,
 // {
 //     type Err: std::error::Error;
-//     fn encode_ctx(&self, buf: &mut [u8], prev_write: usize) -> EncodeResult<Self::Err>;
-//     fn decode_ctx(self, buf: &[u8], prev_read: usize) -> DecodeResult<Self, Self::Err>;
+//     fn encode_ctx(&self, buf: &mut [u8], prev_write: usize) -> CodecResult2<usize>;
+//     fn decode_ctx(self, buf: &[u8], prev_read: usize) -> CodecResult2<(usize, Self)>;
 // }
 
 pub trait Serialisable<'a>
@@ -26,8 +19,8 @@ where
     Self: Sized,
 {
     type Err: std::error::Error;
-    fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err>;
-    fn decode_from(buf: &'a [u8]) -> DecodeResult<Self, Self::Err>;
+    fn encode_into(&self, buf: &mut [u8]) -> CodecResult<usize>;
+    fn decode_from(buf: &'a [u8]) -> CodecResult<(usize, Self)>;
 }
 
 pub trait SerialisableVariable<'a>
@@ -35,8 +28,8 @@ where
     Self: Sized,
 {
     type Err: std::error::Error;
-    fn encode_into_len(&self, buf: &mut [u8], len: usize) -> EncodeResult<Self::Err>;
-    fn decode_from_len(buf: &'a [u8], len: usize) -> DecodeResult<Self, Self::Err>;
+    fn encode_into_len(&self, buf: &mut [u8], len: usize) -> CodecResult<usize>;
+    fn decode_from_len(buf: &'a [u8], len: usize) -> CodecResult<(usize, Self)>;
 }
 
 impl<const N: usize> Serialisable<'_> for [u8; N]
@@ -45,15 +38,15 @@ where
 {
     type Err = Infallible;
 
-    fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
-        let dst = buf.get_mut(..N).ok_or_else(|| Ok(N))?; // TODO: Incorrect 'needed' value
+    fn encode_into(&self, buf: &mut [u8]) -> CodecResult<usize> {
+        let dst = buf.get_mut(..N).ok_or_else(|| CodecError::Needed(N))?; // TODO: Incorrect 'needed' value
         dst.copy_from_slice(&self[..N]);
         Ok(N)
     }
 
-    fn decode_from(buf: &[u8]) -> DecodeResult<Self, Self::Err> {
+    fn decode_from(buf: &[u8]) -> CodecResult<(usize, Self)> {
         let mut out = Self::default();
-        let src = buf.get(..N).ok_or_else(|| Ok(N))?; // TODO: Incorrect 'needed' value
+        let src = buf.get(..N).ok_or_else(|| CodecError::Needed(N))?; // TODO: Incorrect 'needed' value
         out[..N].copy_from_slice(src);
         Ok((N, out))
     }
@@ -62,14 +55,14 @@ where
 impl<'a> Serialisable<'a> for &'a [u8] {
     type Err = Infallible;
 
-    fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
+    fn encode_into(&self, buf: &mut [u8]) -> CodecResult<usize> {
         let len = self.len();
-        let dst = buf.get_mut(..len).ok_or_else(|| Ok(len))?; // TODO: Incorrect 'needed' value
+        let dst = buf.get_mut(..len).ok_or_else(|| CodecError::Needed(len))?; // TODO: Incorrect 'needed' value
         dst.copy_from_slice(&self[..len]);
         Ok(len)
     }
 
-    fn decode_from(buf: &'a [u8]) -> DecodeResult<Self, Self::Err> {
+    fn decode_from(buf: &'a [u8]) -> CodecResult<(usize, Self)> {
         Ok((buf.len(), buf))
     }
 }
@@ -77,14 +70,14 @@ impl<'a> Serialisable<'a> for &'a [u8] {
 impl<'a> SerialisableVariable<'a> for &'a [u8] {
     type Err = Infallible;
 
-    fn encode_into_len(&self, buf: &mut [u8], len: usize) -> EncodeResult<Self::Err> {
-        let dst = buf.get_mut(..len).ok_or_else(|| Ok(len))?; // TODO: Incorrect 'needed' value
+    fn encode_into_len(&self, buf: &mut [u8], len: usize) -> CodecResult<usize> {
+        let dst = buf.get_mut(..len).ok_or_else(|| CodecError::Needed(len))?; // TODO: Incorrect 'needed' value
         dst.copy_from_slice(&self[..len]);
         Ok(len)
     }
 
-    fn decode_from_len(buf: &'a [u8], len: usize) -> DecodeResult<Self, Self::Err> {
-        let src = buf.get(..len).ok_or_else(|| Ok(len))?; // TODO: Incorrect 'needed' value
+    fn decode_from_len(buf: &'a [u8], len: usize) -> CodecResult<(usize, Self)> {
+        let src = buf.get(..len).ok_or_else(|| CodecError::Needed(len))?; // TODO: Incorrect 'needed' value
         Ok((len, src))
     }
 }
@@ -94,11 +87,11 @@ macro_rules! serialisable_impl {
         impl Serialisable<'_> for $t {
             type Err = Infallible;
 
-            fn encode_into(&self, buf: &mut [u8]) -> EncodeResult<Self::Err> {
+            fn encode_into(&self, buf: &mut [u8]) -> CodecResult<usize> {
                 self.to_le_bytes().encode_into(buf)
             }
 
-            fn decode_from(buf: &[u8]) -> DecodeResult<Self, Self::Err> {
+            fn decode_from(buf: &[u8]) -> CodecResult<(usize, Self)> {
                 <[u8; size_of::<$t>()]>::decode_from(buf)
                     .map(|(written, val)| (written, <$t>::from_le_bytes(val)))
             }
@@ -116,26 +109,26 @@ serialisable_impl!(i32);
 serialisable_impl!(i64);
 
 pub trait SerialiseExt<'a> {
-    fn encode<T>(self: &mut &'a mut Self, val: T) -> EncodeExtResult<T::Err>
+    fn encode<T>(self: &mut &'a mut Self, val: T) -> CodecResult<()>
     where
         T: Serialisable<'a>;
-    fn encode_len<T>(self: &mut &'a mut Self, val: T, len: usize) -> EncodeExtResult<T::Err>
+    fn encode_len<T>(self: &mut &'a mut Self, val: T, len: usize) -> CodecResult<()>
     where
         T: SerialisableVariable<'a>;
-    fn decode<T>(self: &mut &'a Self) -> DecodeExtResult<T, T::Err>
+    fn decode<T>(self: &mut &'a Self) -> CodecResult<T>
     where
         T: Serialisable<'a>;
-    fn decode_len<T>(self: &mut &'a Self, len: usize) -> DecodeExtResult<T, T::Err>
+    fn decode_len<T>(self: &mut &'a Self, len: usize) -> CodecResult<T>
     where
         T: SerialisableVariable<'a>;
-    fn decode_peek<T>(&'a self) -> DecodeExtResult<T, T::Err>
+    fn decode_peek<T>(&'a self) -> CodecResult<T>
     where
         T: Serialisable<'a>;
-    fn skip(self: &mut &'a Self, len: usize) -> Result<(), Result<usize, Infallible>>;
+    fn skip(self: &mut &'a Self, len: usize) -> CodecResult<()>;
 }
 
 impl<'a> SerialiseExt<'a> for [u8] {
-    fn encode<T>(self: &mut &'a mut Self, val: T) -> EncodeExtResult<T::Err>
+    fn encode<T>(self: &mut &'a mut Self, val: T) -> CodecResult<()>
     where
         T: Serialisable<'a>,
     {
@@ -145,7 +138,7 @@ impl<'a> SerialiseExt<'a> for [u8] {
         Ok(())
     }
 
-    fn encode_len<T>(self: &mut &'a mut Self, val: T, len: usize) -> EncodeExtResult<T::Err>
+    fn encode_len<T>(self: &mut &'a mut Self, val: T, len: usize) -> CodecResult<()>
     where
         T: SerialisableVariable<'a>,
     {
@@ -155,7 +148,7 @@ impl<'a> SerialiseExt<'a> for [u8] {
         Ok(())
     }
 
-    fn decode<T>(self: &mut &'a Self) -> DecodeExtResult<T, T::Err>
+    fn decode<T>(self: &mut &'a Self) -> CodecResult<T>
     where
         T: Serialisable<'a>,
     {
@@ -164,7 +157,7 @@ impl<'a> SerialiseExt<'a> for [u8] {
         Ok(val)
     }
 
-    fn decode_len<T>(self: &mut &'a Self, len: usize) -> DecodeExtResult<T, T::Err>
+    fn decode_len<T>(self: &mut &'a Self, len: usize) -> CodecResult<T>
     where
         T: SerialisableVariable<'a>,
     {
@@ -172,16 +165,17 @@ impl<'a> SerialiseExt<'a> for [u8] {
         *self = &self[read..];
         Ok(val)
     }
-    
-    fn decode_peek<T>(&'a self) -> DecodeExtResult<T, T::Err>
+
+    fn decode_peek<T>(&'a self) -> CodecResult<T>
     where
-        T: Serialisable<'a> {
-            let (_, val) = T::decode_from(self)?;
-            Ok(val)
+        T: Serialisable<'a>,
+    {
+        let (_, val) = T::decode_from(self)?;
+        Ok(val)
     }
 
-    fn skip(self: &mut &'a Self, len: usize) -> Result<(), Result<usize, Infallible>> {
-        let resized = self.get(len..).ok_or_else(|| Ok(self.len() - len))?;
+    fn skip(self: &mut &'a Self, len: usize) -> CodecResult<()> {
+        let resized = self.get(len..).ok_or_else(|| CodecError::Needed(self.len() - len))?;
         *self = resized;
         Ok(())
     }
