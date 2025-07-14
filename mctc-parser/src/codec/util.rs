@@ -6,25 +6,7 @@ pub(crate) trait MutByteStream {
     fn insert_u8(&mut self, data: u8) -> CodecResult<()> {
         self.insert(data.to_le_bytes())
     }
-    fn insert_i8(&mut self, data: i8) -> CodecResult<()> {
-        self.insert(data.to_le_bytes())
-    }
     fn insert_u16(&mut self, data: u16) -> CodecResult<()> {
-        self.insert(data.to_le_bytes())
-    }
-    fn insert_i16(&mut self, data: i16) -> CodecResult<()> {
-        self.insert(data.to_le_bytes())
-    }
-    fn insert_u32(&mut self, data: u32) -> CodecResult<()> {
-        self.insert(data.to_le_bytes())
-    }
-    fn insert_i32(&mut self, data: i32) -> CodecResult<()> {
-        self.insert(data.to_le_bytes())
-    }
-    fn insert_u64(&mut self, data: u64) -> CodecResult<()> {
-        self.insert(data.to_le_bytes())
-    }
-    fn insert_i64(&mut self, data: i64) -> CodecResult<()> {
         self.insert(data.to_le_bytes())
     }
 }
@@ -55,26 +37,8 @@ pub(crate) trait ByteStream {
     fn extract_u8(&mut self) -> CodecResult<u8> {
         Ok(u8::from_le_bytes(self.extract()?))
     }
-    fn extract_i8(&mut self) -> CodecResult<i8> {
-        Ok(i8::from_le_bytes(self.extract()?))
-    }
     fn extract_u16(&mut self) -> CodecResult<u16> {
         Ok(u16::from_le_bytes(self.extract()?))
-    }
-    fn extract_i16(&mut self) -> CodecResult<i16> {
-        Ok(i16::from_le_bytes(self.extract()?))
-    }
-    fn extract_u32(&mut self) -> CodecResult<u32> {
-        Ok(u32::from_le_bytes(self.extract()?))
-    }
-    fn extract_i32(&mut self) -> CodecResult<i32> {
-        Ok(i32::from_le_bytes(self.extract()?))
-    }
-    fn extract_u64(&mut self) -> CodecResult<u64> {
-        Ok(u64::from_le_bytes(self.extract()?))
-    }
-    fn extract_i64(&mut self) -> CodecResult<i64> {
-        Ok(i64::from_le_bytes(self.extract()?))
     }
     fn skip(&mut self, len: usize) -> CodecResult<()>;
 }
