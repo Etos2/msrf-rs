@@ -1,23 +1,107 @@
 use crate::error::{CodecError, CodecResult};
 
-#[inline]
-pub(crate) fn insert(buf: &mut &mut [u8], data: &[u8]) -> CodecResult<()> {
-    let len = data.len();
-    let (dst, rem) = std::mem::take(buf)
-        .split_at_mut_checked(len)
-        .ok_or_else(|| CodecError::Needed(len - data.len()))?;
-    dst.copy_from_slice(data);
-    *buf = rem;
-    Ok(())
+pub(crate) trait MutByteStream {
+    fn insert<const N: usize>(&mut self, data: [u8; N]) -> CodecResult<()>;
+    fn insert_slice(&mut self, data: &[u8]) -> CodecResult<()>;
+    fn insert_u8(&mut self, data: u8) -> CodecResult<()> {
+        self.insert(data.to_le_bytes())
+    }
+    fn insert_i8(&mut self, data: i8) -> CodecResult<()> {
+        self.insert(data.to_le_bytes())
+    }
+    fn insert_u16(&mut self, data: u16) -> CodecResult<()> {
+        self.insert(data.to_le_bytes())
+    }
+    fn insert_i16(&mut self, data: i16) -> CodecResult<()> {
+        self.insert(data.to_le_bytes())
+    }
+    fn insert_u32(&mut self, data: u32) -> CodecResult<()> {
+        self.insert(data.to_le_bytes())
+    }
+    fn insert_i32(&mut self, data: i32) -> CodecResult<()> {
+        self.insert(data.to_le_bytes())
+    }
+    fn insert_u64(&mut self, data: u64) -> CodecResult<()> {
+        self.insert(data.to_le_bytes())
+    }
+    fn insert_i64(&mut self, data: i64) -> CodecResult<()> {
+        self.insert(data.to_le_bytes())
+    }
 }
 
-#[inline]
-pub(crate) fn extract<'a>(buf: &mut &'a [u8], len: usize) -> CodecResult<&'a [u8]> {
-    let (out, rem) = buf
-        .split_at_checked(len)
-        .ok_or_else(|| CodecError::Needed(len - buf.len()))?;
-    *buf = rem;
-    Ok(out)
+impl<'a> MutByteStream for &'a mut [u8] {
+    fn insert<const N: usize>(&mut self, data: [u8; N]) -> CodecResult<()> {
+        let (dst, rem) = std::mem::take(self)
+            .split_at_mut_checked(N)
+            .ok_or_else(|| CodecError::Needed(N - self.len()))?;
+        dst.copy_from_slice(&data);
+        *self = rem;
+        Ok(())
+    }
+
+    fn insert_slice(&mut self, data: &[u8]) -> CodecResult<()> {
+        let (dst, rem) = std::mem::take(self)
+            .split_at_mut_checked(data.len())
+            .ok_or_else(|| CodecError::Needed(data.len() - self.len()))?;
+        dst.copy_from_slice(data);
+        *self = rem;
+        Ok(())
+    }
+}
+
+pub(crate) trait ByteStream {
+    fn extract<const N: usize>(&mut self) -> CodecResult<[u8; N]>;
+    fn extract_slice(&mut self, len: usize) -> CodecResult<&[u8]>;
+    fn extract_u8(&mut self) -> CodecResult<u8> {
+        Ok(u8::from_le_bytes(self.extract()?))
+    }
+    fn extract_i8(&mut self) -> CodecResult<i8> {
+        Ok(i8::from_le_bytes(self.extract()?))
+    }
+    fn extract_u16(&mut self) -> CodecResult<u16> {
+        Ok(u16::from_le_bytes(self.extract()?))
+    }
+    fn extract_i16(&mut self) -> CodecResult<i16> {
+        Ok(i16::from_le_bytes(self.extract()?))
+    }
+    fn extract_u32(&mut self) -> CodecResult<u32> {
+        Ok(u32::from_le_bytes(self.extract()?))
+    }
+    fn extract_i32(&mut self) -> CodecResult<i32> {
+        Ok(i32::from_le_bytes(self.extract()?))
+    }
+    fn extract_u64(&mut self) -> CodecResult<u64> {
+        Ok(u64::from_le_bytes(self.extract()?))
+    }
+    fn extract_i64(&mut self) -> CodecResult<i64> {
+        Ok(i64::from_le_bytes(self.extract()?))
+    }
+    fn skip(&mut self, len: usize) -> CodecResult<()>;
+}
+
+impl<'a> ByteStream for &'a [u8] {
+    fn extract<const N: usize>(&mut self) -> CodecResult<[u8; N]> {
+        let (out, rem) = self
+            .split_at_checked(N)
+            .ok_or_else(|| CodecError::Needed(N - self.len()))?;
+        *self = rem;
+        Ok(out.try_into().unwrap()) // SAFETY: out has len of N
+    }
+
+    fn extract_slice(&mut self, len: usize) -> CodecResult<&[u8]> {
+        let (out, rem) = self
+            .split_at_checked(len)
+            .ok_or_else(|| CodecError::Needed(len - self.len()))?;
+        *self = rem;
+        Ok(out)
+    }
+
+    fn skip(&mut self, len: usize) -> CodecResult<()> {
+        *self = &self
+            .get(len as usize..)
+            .ok_or_else(|| CodecError::Needed(len - self.len()))?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, PartialEq)]
