@@ -25,7 +25,7 @@ impl Header {
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct RecordMeta {
-    pub(crate) length: usize,
+    pub(crate) length: u64,
     pub(crate) source_id: u16,
     pub(crate) type_id: u16,
 }
@@ -35,7 +35,7 @@ impl RecordMeta {
         RecordMeta::default()
     }
 
-    pub fn length(&self) -> usize {
+    pub fn length(&self) -> u64 {
         self.length
     }
 

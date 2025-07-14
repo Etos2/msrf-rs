@@ -1,58 +1,23 @@
-use std::convert::Infallible;
+use crate::error::{CodecError, CodecResult};
 
-use crate::{error::CodecResult, io::{Serialisable, SerialiseExt}};
-
-// TODO: Currently the checksum of 'Length', redefine as the checksum of the whole record
-#[derive(Debug)]
-pub struct Guard(u8);
-
-impl Guard {
-    pub fn new(bytes: &[u8]) -> Guard {
-        Guard(Self::generate(bytes))
-    }
-
-    pub fn get(&self) -> u8 {
-        self.0
-    }
-
-    pub const fn generate(bytes: &[u8]) -> u8 {
-        let mut out = 0;
-        let mut i = 0;
-        let len = bytes.len();
-
-        while i != len {
-            out ^= bytes[i];
-            i += 1;
-        }
-        out
-    }
+#[inline]
+pub(crate) fn insert(buf: &mut &mut [u8], data: &[u8]) -> CodecResult<()> {
+    let len = data.len();
+    let (dst, rem) = std::mem::take(buf)
+        .split_at_mut_checked(len)
+        .ok_or_else(|| CodecError::Needed(len - data.len()))?;
+    dst.copy_from_slice(data);
+    *buf = rem;
+    Ok(())
 }
 
-macro_rules! guard_impl {
-    ($t:ident) => {
-        impl From<$t> for Guard {
-            fn from(value: $t) -> Self {
-                Guard::new(&value.to_le_bytes())
-            }
-        }
-    };
-}
-
-guard_impl!(u64);
-guard_impl!(u32);
-guard_impl!(u16);
-guard_impl!(u8);
-
-impl Serialisable<'_> for Guard {
-    type Err = Infallible;
-
-    fn encode_into(&self, buf: &mut [u8]) -> CodecResult<usize> {
-        self.0.encode_into(buf)
-    }
-
-    fn decode_from(buf: &[u8]) -> CodecResult<(usize, Self)> {
-        u8::decode_from(buf).map(|(rem, val)| (rem, Guard(val)))
-    }
+#[inline]
+pub(crate) fn extract<'a>(buf: &mut &'a [u8], len: usize) -> CodecResult<&'a [u8]> {
+    let (out, rem) = buf
+        .split_at_checked(len)
+        .ok_or_else(|| CodecError::Needed(len - buf.len()))?;
+    *buf = rem;
+    Ok(out)
 }
 
 #[derive(Debug, PartialEq)]
@@ -137,22 +102,6 @@ impl PVarint {
     }
 }
 
-impl<'a> Serialisable<'a> for PVarint {
-    type Err = Infallible;
-
-    fn encode_into(&self, buf: &mut [u8]) -> CodecResult<usize> {
-        self.as_slice().encode_into(buf)
-    }
-
-    fn decode_from(buf: &'a [u8]) -> CodecResult<(usize, Self)> {
-        let mut src = buf;
-        let tag = src.decode_peek::<u8>()?;
-        let data = src.decode_len::<&[u8]>(PVarint::len_from_tag(tag))?;
-        let val = PVarint::from_slice(data).unwrap(); // SAFETY: slice length == PVarint::len_from_tag
-        Ok((buf.len() - src.len(), val))
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
@@ -167,32 +116,6 @@ pub(crate) mod test {
             let pv = PVarint::new(val);
             assert_eq!(val, pv.get(), "failed to implicitly encode/decode");
             assert_eq!(val, dec, "failed to compare manual/implicit");
-        }
-
-        harness(0x7F); // 2^7-1
-        harness(0x3FFF); // 2^14-1
-        harness(0x1FFFFF); // 2^21-1
-        harness(0xFFFFFFF); // 2^28-1
-        harness(0x7FFFFFFFF); // 2^35-1
-        harness(0x3FFFFFFFFFF); // 2^42-1
-        harness(0x1FFFFFFFFFFFF); // 2^49-1
-        harness(0xFFFFFFFFFFFFFF); // 2^56-1
-        harness(0xFFFFFFFFFFFFFFFF); // 2^64
-    }
-
-    #[test]
-    fn pvarint_codec() {
-        fn harness(val: u64) {
-            let pv = PVarint::new(val);
-            let mut buf = [0; 9];
-
-            let wrote = pv.encode_into(&mut buf).unwrap();
-            assert_eq!(wrote, pv.len(), "incorrect amount of bytes written");
-            assert_eq!(buf, pv.0, "data mismatch");
-
-            let (read, val) = <PVarint>::decode_from(&buf).unwrap();
-            assert_eq!(read, pv.len(), "incorrect amount of bytes read");
-            assert_eq!(val, pv, "data mismatch");
         }
 
         harness(0x7F); // 2^7-1

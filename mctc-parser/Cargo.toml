@@ -5,9 +5,3 @@ edition = "2024"
 
 [dependencies]
 constcat = "0.6.1"
-fallthrough = "0.1.3"
-paste = "1.0.15"
-
-[features]
-io = []
-ascii = []
