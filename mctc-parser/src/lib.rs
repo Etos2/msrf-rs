@@ -1,51 +1,42 @@
 #![feature(ascii_char)]
 
+use std::{io::Write, ops::RangeTo};
+
+use crate::{
+    data::{Header, RecordMeta},
+    error::CodecResult,
+    io::Serialisable,
+};
+
 pub mod data;
-pub mod serialiser;
 pub mod error;
 #[cfg(feature = "io")]
 pub mod io;
 #[cfg(not(feature = "io"))]
 mod io;
+pub mod serialiser;
 
 const CURRENT_VERSION: (u8, u8) = (0, 0);
 
-// TODO: Impl options
-// pub struct Options {}
+trait RawSerialiser {
+    fn serialise_header(&self, buf: &mut [u8], header: &Header) -> CodecResult<usize>;
+    fn serialise_record_meta(&self, buf: &mut [u8], header: &RecordMeta) -> CodecResult<usize>;
+}
 
-// impl Default for Options {
-//     fn default() -> Self {
-//         Self {}
-//     }
-// }
+pub struct Serialiser {
+    raw: Box<dyn RawSerialiser>
+}
 
-// pub trait RecordImpl {
-//     fn type_id(&self) -> u64;
-//     fn length(&self) -> usize;
-// }
+impl Serialiser {
+    pub fn serialise_header(&self, buf: &mut [u8], header: &Header) -> CodecResult<usize> {
+        self.raw.serialise_header(buf, header)
+    }
 
-// // TODO: Isolate API from IO (remove impl Write)
-// pub trait WriteRecord<E: Error>: RecordImpl {
-//     fn write_into(&self, wtr: impl Write) -> Result<(), E>;
-// }
+    pub fn serialise_record_meta(&self, buf: &mut [u8], meta: &RecordMeta) -> CodecResult<usize> {
+        self.raw.serialise_record_meta(buf, meta)
+    }
 
-// // TODO: Isolate API from IO (remove impl Read)
-// pub trait ReadRecord<E: Error>: RecordImpl {
-//     fn read_from(rdr: impl Read, meta: RecordMeta) -> Result<Self, E>
-//     where
-//         Self: Sized;
-// }
-
-// // TODO: Isolate API from IO (remove impl Read + Write)
-// // TODO: Remove `ascii::Char` from pub api
-// pub trait Codec {
-//     const NAME: &'static [ascii::Char];
-//     const VERSION: u16;
-//     type Err: Error;
-//     type Rec;
-
-//     fn type_id(&self, rec: &Self::Rec) -> u64;
-//     fn size(&self, rec: &Self::Rec) -> usize;
-//     fn write_value(&mut self, wtr: impl Write, rec: &Self::Rec) -> Result<(), Self::Err>;
-//     fn read_value(&mut self, rdr: impl Read, meta: RecordMeta) -> Result<Self::Rec, Self::Err>;
-// }
+    pub fn serialise_record_eos(&self, buf: &mut [u8]) -> CodecResult<usize> {
+        0u8.encode_into(buf)
+    }
+}

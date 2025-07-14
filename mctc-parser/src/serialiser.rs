@@ -18,10 +18,6 @@ pub(crate) const HEADER_CONTENTS: usize = 3;
 pub(crate) const RECORD_META_MIN_LEN: usize = 4;
 pub(crate) const RECORD_EOS: u64 = u64::MIN;
 
-// TODO: Move into lib.rs? (make serialiser.rs internal decoding logic)
-#[derive(Debug)]
-pub struct Decoder {}
-
 #[derive(Debug)]
 pub enum MctcError {
     MagicByte([u8; 4]),
