@@ -38,7 +38,7 @@ impl RawSerialiser for Serialiser {
             insert(&mut buf, &meta.source_id.to_le_bytes())?;
             insert(&mut buf, &meta.type_id.to_le_bytes())?;
         } else if record_len != RECORD_EOS {
-            return Err(CodecError::RecordLength(record_len));
+            return Err(CodecError::Length(record_len));
         }
 
         Ok(len - buf.len())
@@ -71,7 +71,7 @@ impl RawSerialiser for Serialiser {
 
         let guard = extract(&mut buf, 1)?[0];
         if guard != 0 {
-            return Err(CodecError::Guard(guard));
+            return Err(CodecError::Guard);
         }
 
         Ok((
@@ -93,7 +93,7 @@ impl RawSerialiser for Serialiser {
             // 0 = End Of Stream indicator
             0 => Ok((RecordMeta::new_eos(), len - buf.len())),
             // Len invariance, must be long enough to contain IDs
-            1..RECORD_META_MIN_LEN => Err(CodecError::RecordLength(length)),
+            1..RECORD_META_MIN_LEN => Err(CodecError::Length(length)),
             // Contains contents + zero/some data
             RECORD_META_MIN_LEN.. => {
                 // SAFETY: [u8; 2].len() == 2
