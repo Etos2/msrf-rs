@@ -1,11 +1,6 @@
-#![feature(ascii_char)]
-
-use std::{io::Write, ops::RangeTo};
-
 use crate::{
     data::{Header, RecordMeta},
     error::CodecResult,
-    io::Serialisable,
 };
 
 pub mod data;
@@ -34,9 +29,5 @@ impl Serialiser {
 
     pub fn serialise_record_meta(&self, buf: &mut [u8], meta: &RecordMeta) -> CodecResult<usize> {
         self.raw.serialise_record_meta(buf, meta)
-    }
-
-    pub fn serialise_record_eos(&self, buf: &mut [u8]) -> CodecResult<usize> {
-        0u8.encode_into(buf)
     }
 }
