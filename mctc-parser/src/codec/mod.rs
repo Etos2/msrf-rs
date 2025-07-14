@@ -2,7 +2,6 @@ mod util;
 pub mod v0_0;
 
 use crate::{
-    codec::v0_0::Deserialiser as DeserialiserV0_0,
     codec::v0_0::Serialiser as SerialiserV0_0,
     data::{Header, RecordMeta},
     error::CodecResult,
@@ -19,9 +18,6 @@ pub(crate) mod constants {
 pub(crate) trait RawSerialiser {
     fn serialise_header(&self, buf: &mut [u8], header: &Header) -> CodecResult<usize>;
     fn serialise_record_meta(&self, buf: &mut [u8], meta: &RecordMeta) -> CodecResult<usize>;
-}
-
-pub(crate) trait RawDeserialiser {
     fn deserialise_header(&self, buf: &[u8]) -> CodecResult<(Header, usize)>;
     fn deserialise_record_meta(&self, buf: &[u8]) -> CodecResult<(RecordMeta, usize)>;
 }
@@ -29,11 +25,6 @@ pub(crate) trait RawDeserialiser {
 #[non_exhaustive]
 pub enum AnySerialiser {
     V0_0(SerialiserV0_0),
-}
-
-#[non_exhaustive]
-pub enum AnyDeserialiser {
-    V0_0(DeserialiserV0_0),
 }
 
 impl RawSerialiser for AnySerialiser {
@@ -48,18 +39,16 @@ impl RawSerialiser for AnySerialiser {
             AnySerialiser::V0_0(raw) => raw.serialise_record_meta(buf, meta),
         }
     }
-}
 
-impl RawDeserialiser for AnyDeserialiser {
     fn deserialise_header(&self, buf: &[u8]) -> CodecResult<(Header, usize)> {
         match self {
-            AnyDeserialiser::V0_0(raw) => raw.deserialise_header(buf),
+            AnySerialiser::V0_0(raw) => raw.deserialise_header(buf),
         }
     }
 
     fn deserialise_record_meta(&self, buf: &[u8]) -> CodecResult<(RecordMeta, usize)> {
         match self {
-            AnyDeserialiser::V0_0(raw) => raw.deserialise_record_meta(buf),
+            AnySerialiser::V0_0(raw) => raw.deserialise_record_meta(buf),
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::CURRENT_VERSION;
+use crate::{CURRENT_VERSION, codec::constants::RECORD_META_MIN_LEN};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Header {
@@ -31,6 +31,14 @@ pub struct RecordMeta {
 }
 
 impl RecordMeta {
+    pub fn new(value_len: u64, source_id: u16, type_id: u16) -> Self {
+        RecordMeta {
+            length: value_len + RECORD_META_MIN_LEN,
+            source_id,
+            type_id,
+        }
+    }
+
     pub fn new_eos() -> Self {
         RecordMeta::default()
     }
@@ -49,5 +57,15 @@ impl RecordMeta {
 
     pub fn type_id(&self) -> u16 {
         self.type_id
+    }
+
+    pub fn value_len(&self) -> u64 {
+        if self.is_eos() {
+            0
+        } else {
+            self.length
+                .checked_sub(RECORD_META_MIN_LEN)
+                .expect("length should always be >= 5 || 0")
+        }
     }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    codec::{v0_0::Deserialiser, AnySerialiser, RawSerialiser},
+    codec::{AnySerialiser, RawSerialiser},
     data::{Header, RecordMeta},
     error::CodecResult,
 };
@@ -14,12 +14,20 @@ pub struct Serialiser {
     raw: AnySerialiser,
 }
 
-impl Serialiser {
-    pub fn serialise_header(&self, buf: &mut [u8], header: &Header) -> CodecResult<usize> {
+impl RawSerialiser for Serialiser {
+    fn serialise_header(&self, buf: &mut [u8], header: &Header) -> CodecResult<usize> {
         self.raw.serialise_header(buf, header)
     }
 
-    pub fn serialise_record_meta(&self, buf: &mut [u8], meta: &RecordMeta) -> CodecResult<usize> {
+    fn serialise_record_meta(&self, buf: &mut [u8], meta: &RecordMeta) -> CodecResult<usize> {
         self.raw.serialise_record_meta(buf, meta)
+    }
+
+    fn deserialise_header(&self, buf: &[u8]) -> CodecResult<(Header, usize)> {
+        self.raw.deserialise_header(buf)
+    }
+
+    fn deserialise_record_meta(&self, buf: &[u8]) -> CodecResult<(RecordMeta, usize)> {
+        self.raw.deserialise_record_meta(buf)
     }
 }

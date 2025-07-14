@@ -1,6 +1,6 @@
 use crate::{
     codec::{
-        RawDeserialiser, RawSerialiser,
+        RawSerialiser,
         constants::{HEADER_CONTENTS, HEADER_LEN, MAGIC_BYTES, RECORD_EOS, RECORD_META_MIN_LEN},
         util::{PVarint, extract, insert},
     },
@@ -43,11 +43,7 @@ impl RawSerialiser for Serialiser {
 
         Ok(len - buf.len())
     }
-}
 
-pub struct Deserialiser {}
-
-impl RawDeserialiser for Deserialiser {
     fn deserialise_header(&self, buf: &[u8]) -> CodecResult<(Header, usize)> {
         let len = buf.len();
         let mut buf = buf;
@@ -134,13 +130,12 @@ mod test {
 
     #[test]
     fn decode_header() {
-        let des = Deserialiser {};
-        let (out, read) = des.deserialise_header(REF_HEADER_BYTES.as_slice()).unwrap();
+        let ser = Serialiser {};
+        let (out, read) = ser.deserialise_header(REF_HEADER_BYTES.as_slice()).unwrap();
 
         assert_eq!(REF_HEADER, out);
         assert_eq!(REF_HEADER_BYTES.len(), read);
 
-        let ser = Serialiser {};
         let mut buf = [0; 8];
         let written = ser.serialise_header(&mut buf, &REF_HEADER).unwrap();
 
