@@ -2,7 +2,7 @@ use crate::{
     codec::{
         RawSerialiser,
         constants::{HEADER_CONTENTS, HEADER_LEN, MAGIC_BYTES, RECORD_EOS, RECORD_META_MIN_LEN},
-        util::{ByteStream, MutByteStream, PVarint},
+        util::{ByteStream, MutByteStream},
     },
     data::{Header, RecordMeta},
     error::{CodecError, CodecResult},
@@ -20,7 +20,7 @@ impl RawSerialiser for Serialiser {
         }
 
         buf.insert(MAGIC_BYTES)?;
-        buf.insert_slice(PVarint::new(HEADER_CONTENTS as u64).as_slice())?;
+        buf.insert_varint(HEADER_CONTENTS as u64)?;
         buf.insert_u8(header.version.0)?;
         buf.insert_u8(header.version.1)?;
         buf.insert_u8(0x00)?;
@@ -33,7 +33,7 @@ impl RawSerialiser for Serialiser {
         let mut buf = buf;
 
         let record_len = meta.length;
-        buf.insert_slice(PVarint::new(record_len).as_slice())?;
+        buf.insert_varint(record_len)?;
         if record_len > RECORD_META_MIN_LEN {
             buf.insert_u16(meta.source_id)?;
             buf.insert_u16(meta.type_id)?;
@@ -58,9 +58,7 @@ impl RawSerialiser for Serialiser {
             return Err(CodecError::MagicByte(magic_bytes));
         }
 
-        // TODO: Better API
-        let pv_len = PVarint::len_from_tag(buf[0]); // TODO: Unchecked index
-        let length = PVarint::decode(buf.extract_slice(pv_len)?).unwrap(); // TODO: Safety analysis
+        let length = buf.extract_varint()?;
         let major = buf.extract_u8()?;
         let minor = buf.extract_u8()?;
 
@@ -85,9 +83,7 @@ impl RawSerialiser for Serialiser {
         let len = buf.len();
         let mut buf = buf;
 
-        // TODO: Better API
-        let pv_len = PVarint::len_from_tag(buf[0]); // TODO: Unchecked index
-        let length = PVarint::decode(buf.extract_slice(pv_len)?).unwrap(); // TODO: Safety analysis
+        let length = buf.extract_varint()?;
         match length {
             // 0 = End Of Stream indicator
             0 => Ok((RecordMeta::new_eos(), len - buf.len())),
