@@ -34,7 +34,7 @@ impl RawSerialiser for Serialiser {
 
         let record_len = meta.length;
         buf.insert_slice(PVarint::new(record_len).as_slice())?;
-        if record_len < RECORD_META_MIN_LEN {
+        if record_len > RECORD_META_MIN_LEN {
             buf.insert_u16(meta.source_id)?;
             buf.insert_u16(meta.type_id)?;
         } else if record_len != RECORD_EOS {
@@ -123,8 +123,19 @@ mod test {
         &[0x00]        // Guard
     );
 
+    const REF_RECORD_META: RecordMeta = RecordMeta {
+        length: 6,
+        source_id: 16,
+        type_id: 32,
+    };
+    const REF_RECORD_META_BYTES: &[u8; 5] = constcat::concat_bytes!(
+        &[0b1101_u8],          // Length
+        &16_u16.to_le_bytes(), // Source ID
+        &32_u16.to_le_bytes(), // Source ID
+    );
+
     #[test]
-    fn decode_header() {
+    fn serialise_header() {
         let ser = Serialiser {};
         let (out, read) = ser.deserialise_header(REF_HEADER_BYTES.as_slice()).unwrap();
 
@@ -135,6 +146,21 @@ mod test {
         let written = ser.serialise_header(&mut buf, &REF_HEADER).unwrap();
 
         assert_eq!(REF_HEADER_BYTES, &buf);
+        assert_eq!(buf.len(), written);
+    }
+
+    #[test]
+    fn serialise_record_meta() {
+        let ser = Serialiser {};
+        let (out, read) = ser.deserialise_record_meta(REF_RECORD_META_BYTES.as_slice()).unwrap();
+
+        assert_eq!(REF_RECORD_META, out);
+        assert_eq!(REF_RECORD_META_BYTES.len(), read);
+
+        let mut buf = [0; 5];
+        let written = ser.serialise_record_meta(&mut buf, &REF_RECORD_META).unwrap();
+
+        assert_eq!(REF_RECORD_META_BYTES, &buf);
         assert_eq!(buf.len(), written);
     }
 }
