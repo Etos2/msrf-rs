@@ -1,8 +1,7 @@
 use crate::{
     codec::{
-        RawSerialiser,
+        ByteStream, MutByteStream, RawSerialiser,
         constants::{HEADER_CONTENTS, HEADER_LEN, MAGIC_BYTES, RECORD_EOS, RECORD_META_MIN_LEN},
-        util::{ByteStream, MutByteStream},
     },
     data::{Header, RecordMeta},
     error::{CodecError, CodecResult},
@@ -148,13 +147,17 @@ mod test {
     #[test]
     fn serialise_record_meta() {
         let ser = Serialiser {};
-        let (out, read) = ser.deserialise_record_meta(REF_RECORD_META_BYTES.as_slice()).unwrap();
+        let (out, read) = ser
+            .deserialise_record_meta(REF_RECORD_META_BYTES.as_slice())
+            .unwrap();
 
         assert_eq!(REF_RECORD_META, out);
         assert_eq!(REF_RECORD_META_BYTES.len(), read);
 
         let mut buf = [0; 5];
-        let written = ser.serialise_record_meta(&mut buf, &REF_RECORD_META).unwrap();
+        let written = ser
+            .serialise_record_meta(&mut buf, &REF_RECORD_META)
+            .unwrap();
 
         assert_eq!(REF_RECORD_META_BYTES, &buf);
         assert_eq!(buf.len(), written);
