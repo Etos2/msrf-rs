@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "mctc-parser",
+    "msrf",
+    "msrf-base",
 ]
