@@ -40,7 +40,7 @@ pub fn decode(data: &[u8]) -> u64 {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+mod test {
     use super::*;
 
     #[test]

@@ -7,7 +7,7 @@ use crate::{
     error::{CodecError, CodecResult},
 };
 
-pub struct Serialiser {}
+pub struct Serialiser;
 
 impl RawSerialiser for Serialiser {
     fn serialise_header(&self, buf: &mut [u8], header: &Header) -> CodecResult<usize> {
