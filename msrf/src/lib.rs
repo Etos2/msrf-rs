@@ -5,7 +5,7 @@ use crate::{
     data::{Header, RecordMeta},
 };
 
-pub(crate) mod codec;
+pub mod codec;
 pub mod data;
 
 const VERSION_TABLE: &'static [(u8, u8)] = &[(0, 0)];

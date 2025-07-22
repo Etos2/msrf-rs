@@ -15,7 +15,7 @@ pub(crate) mod constants {
     pub(crate) const RECORD_EOS: u64 = u64::MIN;
 }
 
-pub(crate) trait RawSerialiser {
+pub trait RawSerialiser {
     fn serialise_header(&self, buf: &mut [u8], header: &Header) -> CodecResult<usize>;
     fn serialise_record_meta(&self, buf: &mut [u8], meta: &RecordMeta) -> CodecResult<usize>;
     fn deserialise_header(&self, buf: &[u8]) -> CodecResult<(Header, usize)>;
