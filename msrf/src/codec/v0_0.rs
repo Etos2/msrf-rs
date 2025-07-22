@@ -1,10 +1,12 @@
+use msrf_io::error::{CodecError, CodecResult};
+use msrf_io::{ByteStream, MutByteStream};
+
 use crate::{
     codec::{
-        ByteStream, MutByteStream, RawSerialiser,
+        RawSerialiser,
         constants::{HEADER_CONTENTS, HEADER_LEN, MAGIC_BYTES, RECORD_EOS, RECORD_META_MIN_LEN},
     },
     data::{Header, RecordMeta},
-    error::{CodecError, CodecResult},
 };
 
 pub struct Serialiser;

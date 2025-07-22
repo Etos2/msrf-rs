@@ -1,12 +1,12 @@
+use msrf_io::error::CodecResult;
+
 use crate::{
     codec::{AnySerialiser, RawSerialiser},
     data::{Header, RecordMeta},
-    error::CodecResult,
 };
 
 pub(crate) mod codec;
 pub mod data;
-pub mod error;
 
 const VERSION_TABLE: &'static [(u8, u8)] = &[(0, 0)];
 const CURRENT_VERSION: (u8, u8) = (0, 0);
