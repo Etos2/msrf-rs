@@ -24,3 +24,9 @@ impl Display for CodecError {
         }
     }
 }
+
+impl From<usize> for CodecError {
+    fn from(value: usize) -> Self {
+        CodecError::Needed(value)
+    }
+}

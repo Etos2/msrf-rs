@@ -85,7 +85,12 @@ mod test {
         for version in VERSION_TABLE {
             let major = version.0;
             let res = Serialiser::builder().with_version(major).build();
-            assert!(res.is_some(), "expected serialiser for version `{}.{}`", version.0, version.1);
+            assert!(
+                res.is_some(),
+                "expected serialiser for version `{}.{}`",
+                version.0,
+                version.1
+            );
         }
     }
 }

@@ -20,7 +20,7 @@ impl RawSerialiser for Serialiser {
             return Err(CodecError::Needed(HEADER_LEN - len));
         }
 
-        buf.insert(MAGIC_BYTES)?;
+        buf.insert(&MAGIC_BYTES)?;
         buf.insert_varint(HEADER_CONTENTS as u64)?;
         buf.insert_u8(header.version.0)?;
         buf.insert_u8(header.version.1)?;
@@ -54,7 +54,7 @@ impl RawSerialiser for Serialiser {
         }
 
         // SAFETY: [u8; 4].len() == 4
-        let magic_bytes = buf.extract()?;
+        let magic_bytes = buf.extract(4)?.try_into().unwrap();
         if magic_bytes != MAGIC_BYTES {
             return Err(CodecError::MagicByte(magic_bytes));
         }

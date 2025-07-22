@@ -1,44 +1,60 @@
-use crate::error::{CodecError, CodecResult};
+use std::error::Error;
 
 pub mod error;
 pub mod varint;
 
+pub trait RecordSerialise
+where
+    Self: Sized,
+{
+    type Err: Error;
+    type Record;
+
+    fn deserialise_record(&self, id: u16, value: &[u8]) -> Result<Self::Record, Self::Err>;
+    fn serialise_record(&self, value: &mut [u8], record: &Self::Record)
+    -> Result<usize, Self::Err>;
+}
+
 #[inline]
-fn insert_impl(buf: &mut &mut [u8], data: &[u8]) -> CodecResult<()> {
+fn insert_impl(buf: &mut &mut [u8], data: &[u8]) -> Result<(), usize> {
     let (dst, rem) = std::mem::take(buf)
         .split_at_mut_checked(data.len())
-        .ok_or_else(|| CodecError::Needed(data.len() - buf.len()))?;
+        .ok_or_else(|| data.len() - buf.len())?;
     dst.copy_from_slice(&data);
     *buf = rem;
     Ok(())
 }
 
 #[inline]
-fn extract_impl<'a>(buf: &mut &'a [u8], len: usize) -> CodecResult<&'a [u8]> {
-    let (out, rem) = buf
-        .split_at_checked(len)
-        .ok_or_else(|| CodecError::Needed(len - buf.len()))?;
+fn extract_impl<'a>(buf: &mut &'a [u8], len: usize) -> Result<&'a [u8], usize> {
+    let (out, rem) = buf.split_at_checked(len).ok_or_else(|| len - buf.len())?;
     *buf = rem;
     Ok(out) // SAFETY: out has len of N
 }
 
 pub trait MutByteStream {
-    fn insert<const N: usize>(&mut self, data: [u8; N]) -> CodecResult<()>;
-    fn insert_varint(&mut self, data: u64) -> CodecResult<()>;
-    fn insert_u8(&mut self, data: u8) -> CodecResult<()> {
-        self.insert(data.to_le_bytes())
+    fn insert(&mut self, data: &[u8]) -> Result<(), usize>;
+    fn insert_varint(&mut self, data: u64) -> Result<(), usize>;
+    fn insert_u8(&mut self, data: u8) -> Result<(), usize> {
+        self.insert(&data.to_le_bytes())
     }
-    fn insert_u16(&mut self, data: u16) -> CodecResult<()> {
-        self.insert(data.to_le_bytes())
+    fn insert_u16(&mut self, data: u16) -> Result<(), usize> {
+        self.insert(&data.to_le_bytes())
+    }
+    fn insert_u32(&mut self, data: u32) -> Result<(), usize> {
+        self.insert(&data.to_le_bytes())
+    }
+    fn insert_u64(&mut self, data: u64) -> Result<(), usize> {
+        self.insert(&data.to_le_bytes())
     }
 }
 
 impl<'a> MutByteStream for &'a mut [u8] {
-    fn insert<const N: usize>(&mut self, data: [u8; N]) -> CodecResult<()> {
-        insert_impl(self, data.as_slice())
+    fn insert(&mut self, data: &[u8]) -> Result<(), usize> {
+        insert_impl(self, data)
     }
 
-    fn insert_varint(&mut self, data: u64) -> CodecResult<()> {
+    fn insert_varint(&mut self, data: u64) -> Result<(), usize> {
         let mut buf = [0; 9];
         let len = varint::encode(&mut buf, data);
         insert_impl(self, &buf[..len])
@@ -46,33 +62,37 @@ impl<'a> MutByteStream for &'a mut [u8] {
 }
 
 pub trait ByteStream {
-    fn extract<const N: usize>(&mut self) -> CodecResult<[u8; N]>;
-    fn extract_varint(&mut self) -> CodecResult<u64>;
-    fn extract_u8(&mut self) -> CodecResult<u8> {
-        Ok(u8::from_le_bytes(self.extract()?))
+    fn extract(&mut self, len: usize) -> Result<&[u8], usize>;
+    fn extract_varint(&mut self) -> Result<u64, usize>;
+    fn extract_u8(&mut self) -> Result<u8, usize> {
+        Ok(u8::from_le_bytes(self.extract(1)?.try_into().unwrap()))
     }
-    fn extract_u16(&mut self) -> CodecResult<u16> {
-        Ok(u16::from_le_bytes(self.extract()?))
+    fn extract_u16(&mut self) -> Result<u16, usize> {
+        Ok(u16::from_le_bytes(self.extract(2)?.try_into().unwrap()))
     }
-    fn skip(&mut self, len: usize) -> CodecResult<()>;
+    fn extract_u32(&mut self) -> Result<u32, usize> {
+        Ok(u32::from_le_bytes(self.extract(4)?.try_into().unwrap()))
+    }
+    fn extract_u64(&mut self) -> Result<u64, usize> {
+        Ok(u64::from_le_bytes(self.extract(8)?.try_into().unwrap()))
+    }
+    fn skip(&mut self, len: usize) -> Result<(), usize>;
 }
 
 impl<'a> ByteStream for &'a [u8] {
-    fn extract<const N: usize>(&mut self) -> CodecResult<[u8; N]> {
+    fn extract(&mut self, len: usize) -> Result<&[u8], usize> {
         // SAFETY: slice has len of N
-        Ok(extract_impl(self, N)?.try_into().unwrap())
+        Ok(extract_impl(self, len)?)
     }
 
-    fn extract_varint(&mut self) -> CodecResult<u64> {
-        let tag = self.get(0).ok_or_else(|| CodecError::Needed(1))?;
+    fn extract_varint(&mut self) -> Result<u64, usize> {
+        let tag = self.get(0).ok_or(1usize)?;
         let data = extract_impl(self, varint::len(*tag))?;
         Ok(varint::decode(data))
     }
 
-    fn skip(&mut self, len: usize) -> CodecResult<()> {
-        *self = &self
-            .get(len as usize..)
-            .ok_or_else(|| CodecError::Needed(len - self.len()))?;
+    fn skip(&mut self, len: usize) -> Result<(), usize> {
+        *self = &self.get(len as usize..).ok_or_else(|| len - self.len())?;
         Ok(())
     }
 }
@@ -86,9 +106,10 @@ mod test {
         let mut buf = [0; 10];
         let val = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-        buf.as_mut_slice().insert(val).unwrap();
+        buf.as_mut_slice().insert(&val).unwrap();
         assert_eq!(buf, val);
-        let expected = buf.as_slice().extract().unwrap();
+        let mut buf_mut = buf.as_slice();
+        let expected = buf_mut.extract(val.len()).unwrap();
         assert_eq!(expected, val);
     }
 
