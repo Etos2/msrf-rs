@@ -137,9 +137,8 @@ mod test {
 
     #[test]
     fn bytestream_varint() {
-        let mut buf = [0; 9];
         let val = u64::MAX;
-
+        let mut buf = [0; 9];
         let mut varint_buf = [0; 9];
         let _ = varint::encode(&mut varint_buf, val);
 
