@@ -3,18 +3,21 @@ use crate::{CURRENT_VERSION, codec::constants::RECORD_META_MIN_LEN};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Header {
     pub(crate) version: (u8, u8),
+    pub(crate) remainder: usize,
 }
 
 impl Header {
     pub fn new() -> Self {
         Header {
             version: CURRENT_VERSION,
+            remainder: 0,
         }
     }
 
     pub fn new_with_version(major: u8, minor: u8) -> Self {
         Header {
             version: (major, minor),
+            remainder: 0,
         }
     }
 

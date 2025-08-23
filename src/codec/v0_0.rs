@@ -1,6 +1,7 @@
 use msrf_io::error::{CodecError, CodecResult};
 use msrf_io::{ByteStream, MutByteStream};
 
+use crate::reader::{DeserialiseResult, RawDeserialiser, ParserError};
 use crate::{
     codec::{
         RawSerialiser,
@@ -8,6 +9,49 @@ use crate::{
     },
     data::{Header, RecordMeta},
 };
+
+#[derive(Debug, Clone)]
+pub struct Deserialiser;
+
+impl RawDeserialiser for Deserialiser {
+    fn deserialise_record_head(&self, input: &[u8]) -> DeserialiseResult<RecordMeta> {
+        let len = input.len();
+        let mut buf = input;
+
+        let length = buf.extract_varint().map_err(Ok)?;
+        match length {
+            // 0 = End Of Stream indicator
+            0 => Ok((RecordMeta::new_eos(), len - buf.len())),
+            // Len invariance, must be long enough to contain IDs
+            1..RECORD_META_MIN_LEN => Err(Err(ParserError::Length(length))),
+            // Contains contents + zero/some data
+            RECORD_META_MIN_LEN.. => {
+                let source_id = buf.extract_u16().map_err(Ok)?;
+                let type_id = buf.extract_u16().map_err(Ok)?;
+
+                Ok((
+                    RecordMeta {
+                        length,
+                        source_id,
+                        type_id,
+                    },
+                    len - buf.len(),
+                ))
+            }
+        }
+    }
+
+    fn deserialise_record_tail(&self, input: &[u8]) -> DeserialiseResult<()> {
+        let len = input.len();
+        let mut buf = input;
+        let guard = buf.extract_u8().map_err(Ok)?;
+        if guard != 0 {
+            Ok(((), len - buf.len()))
+        } else {
+            Err(Err(ParserError::Guard(guard)))
+        }
+    }
+}
 
 pub struct Serialiser;
 
@@ -64,8 +108,9 @@ impl RawSerialiser for Serialiser {
         let minor = buf.extract_u8()?;
 
         // Skip additional header data
-        if let Some(unknown) = (length).checked_sub(HEADER_CONTENTS) {
-            buf.skip(unknown as usize)?;
+        let remainder = (length).checked_sub(HEADER_CONTENTS).unwrap_or(0) as usize;
+        if remainder > 0 {
+            buf.skip(remainder as usize)?;
         }
 
         if buf.extract_u8()? != 0 {
@@ -75,6 +120,7 @@ impl RawSerialiser for Serialiser {
         Ok((
             Header {
                 version: (major, minor),
+                remainder,
             },
             len - buf.len(),
         ))
@@ -112,7 +158,7 @@ impl RawSerialiser for Serialiser {
 mod test {
     use super::*;
 
-    const REF_HEADER: Header = Header { version: (1, 2) };
+    const REF_HEADER: Header = Header { version: (1, 2), remainder: 0 };
     const REF_HEADER_BYTES: &[u8; 8] = constcat::concat_bytes!(
         &MAGIC_BYTES,  // Magic bytes
         &[0b111_u8],   // Length Pvarint(3)
