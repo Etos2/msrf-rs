@@ -27,6 +27,7 @@ fn insert_impl(buf: &mut &mut [u8], data: &[u8]) -> Result<(), usize> {
 
 #[inline]
 fn extract_impl<'a>(buf: &mut &'a [u8], len: usize) -> Result<&'a [u8], usize> {
+    const VAL_SIZE: usize = std::mem::size_of::<u32>();
     let (out, rem) = buf.split_at_checked(len).ok_or_else(|| len - buf.len())?;
     *buf = rem;
     Ok(out) // SAFETY: out has len of N
@@ -35,6 +36,9 @@ fn extract_impl<'a>(buf: &mut &'a [u8], len: usize) -> Result<&'a [u8], usize> {
 pub trait MutByteStream {
     fn insert(&mut self, data: &[u8]) -> Result<(), usize>;
     fn insert_varint(&mut self, data: u64) -> Result<(), usize>;
+    fn insert_array<const N: usize>(&mut self, data: &[u8; N]) -> Result<(), usize> {
+        self.insert(data.as_slice())
+    }
     fn insert_u8(&mut self, data: u8) -> Result<(), usize> {
         self.insert(&data.to_le_bytes())
     }
@@ -64,6 +68,10 @@ impl<'a> MutByteStream for &'a mut [u8] {
 pub trait ByteStream {
     fn extract(&mut self, len: usize) -> Result<&[u8], usize>;
     fn extract_varint(&mut self) -> Result<u64, usize>;
+    fn extract_array<const N: usize>(&mut self) -> Result<[u8; N], usize> {
+        // SAFETY: self.extract(N) returns &[u8; N]
+        Ok(self.extract(N)?.try_into().unwrap())
+    }
     fn extract_u8(&mut self) -> Result<u8, usize> {
         Ok(u8::from_le_bytes(self.extract(1)?.try_into().unwrap()))
     }
@@ -87,8 +95,12 @@ impl<'a> ByteStream for &'a [u8] {
 
     fn extract_varint(&mut self) -> Result<u64, usize> {
         let tag = self.get(0).ok_or(1usize)?;
-        let data = extract_impl(self, varint::len(*tag))?;
-        Ok(varint::decode(data))
+        if *tag == 0 {
+            return Ok(0);
+        } else {
+            let data = extract_impl(self, varint::len(*tag))?;
+            Ok(varint::decode(data))
+        }
     }
 
     fn skip(&mut self, len: usize) -> Result<(), usize> {

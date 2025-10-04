@@ -10,10 +10,10 @@ impl RecordSerialise for Serialiser {
     type Record = Record;
 
     fn deserialise_record(&self, id: u16, value: &[u8]) -> Result<Self::Record, Self::Err> {
-        match id.try_into().map_err(|_| Error::UnexpectedType(id))? {
+        match id {
             ID_SOURCE_ADD => deserialise_source_add(value).map(Record::from),
             ID_SOURCE_REMOVE => deserialise_source_remove(value).map(Record::from),
-            id => return Err(Error::UnexpectedType(id as u16)),
+            id => return Err(Error::UnexpectedType(id)),
         }
         .map_err(|_| Error::InvalidValueLength)
     }

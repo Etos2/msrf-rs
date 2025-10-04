@@ -1,7 +1,8 @@
 use msrf_io::error::{CodecError, CodecResult};
 use msrf_io::{ByteStream, MutByteStream};
 
-use crate::reader::{DeserialiseResult, RawDeserialiser, ParserError};
+use crate::codec::{DesResult, RawDeserialiser};
+use crate::reader::ParserError;
 use crate::{
     codec::{
         RawSerialiser,
@@ -10,24 +11,24 @@ use crate::{
     data::{Header, RecordMeta},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Deserialiser;
 
 impl RawDeserialiser for Deserialiser {
-    fn deserialise_record_head(&self, input: &[u8]) -> DeserialiseResult<RecordMeta> {
-        let len = input.len();
-        let mut buf = input;
+    fn deserialise_record_meta(&self, buf: &[u8]) -> DesResult<RecordMeta> {
+        let len = buf.len();
+        let mut buf = buf;
 
-        let length = buf.extract_varint().map_err(Ok)?;
+        let length = buf.extract_varint().map_err(ParserError::Need)?;
         match length {
             // 0 = End Of Stream indicator
-            0 => Ok((RecordMeta::new_eos(), len - buf.len())),
+            RECORD_EOS => Ok((RecordMeta::new_eos(), len - buf.len())),
             // Len invariance, must be long enough to contain IDs
-            1..RECORD_META_MIN_LEN => Err(Err(ParserError::Length(length))),
+            1..RECORD_META_MIN_LEN => Err(ParserError::Length(length)),
             // Contains contents + zero/some data
             RECORD_META_MIN_LEN.. => {
-                let source_id = buf.extract_u16().map_err(Ok)?;
-                let type_id = buf.extract_u16().map_err(Ok)?;
+                let source_id = buf.extract_u16().map_err(ParserError::Need)?;
+                let type_id = buf.extract_u16().map_err(ParserError::Need)?;
 
                 Ok((
                     RecordMeta {
@@ -41,14 +42,15 @@ impl RawDeserialiser for Deserialiser {
         }
     }
 
-    fn deserialise_record_tail(&self, input: &[u8]) -> DeserialiseResult<()> {
-        let len = input.len();
-        let mut buf = input;
-        let guard = buf.extract_u8().map_err(Ok)?;
-        if guard != 0 {
+    fn deserialise_guard(&self, buf: &[u8]) -> DesResult<()> {
+        let len = buf.len();
+        let mut buf = buf;
+
+        let guard = buf.extract_u8().map_err(ParserError::Need)?;
+        if guard == 0 {
             Ok(((), len - buf.len()))
         } else {
-            Err(Err(ParserError::Guard(guard)))
+            Err(ParserError::Guard(guard))
         }
     }
 }
@@ -119,8 +121,8 @@ impl RawSerialiser for Serialiser {
 
         Ok((
             Header {
+                length,
                 version: (major, minor),
-                remainder,
             },
             len - buf.len(),
         ))
@@ -155,23 +157,27 @@ impl RawSerialiser for Serialiser {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use super::*;
 
-    const REF_HEADER: Header = Header { version: (1, 2), remainder: 0 };
-    const REF_HEADER_BYTES: &[u8; 8] = constcat::concat_bytes!(
+    pub(crate) const REF_HEADER: Header = Header {
+        length: 3,
+        version: (1, 2),
+    };
+
+    pub(crate) const REF_HEADER_BYTES: &[u8; 8] = constcat::concat_bytes!(
         &MAGIC_BYTES,  // Magic bytes
         &[0b111_u8],   // Length Pvarint(3)
         &[1_u8, 2_u8], // Version (Major, Minor)
         &[0x00]        // Guard
     );
 
-    const REF_RECORD_META: RecordMeta = RecordMeta {
+    pub(crate) const REF_RECORD_META: RecordMeta = RecordMeta {
         length: 6,
         source_id: 16,
         type_id: 32,
     };
-    const REF_RECORD_META_BYTES: &[u8; 5] = constcat::concat_bytes!(
+    pub(crate) const REF_RECORD_META_BYTES: &[u8; 5] = constcat::concat_bytes!(
         &[0b1101_u8],          // Length
         &16_u16.to_le_bytes(), // Source ID
         &32_u16.to_le_bytes(), // Source ID

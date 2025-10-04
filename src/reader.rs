@@ -1,68 +1,26 @@
-use std::{error::Error, fmt::Display};
+use std::{cmp::Ordering, error::Error, fmt::Display};
 
 use crate::{
-    codec::v0_0::{self, Deserialiser},
+    codec::{
+        AnyDeserialiser, DesResult, RawDeserialiser, constants::HEADER_LEN,
+        default_deserialise_header,
+    },
     data::{Header, RecordMeta},
 };
 
 pub type DeserialiseResult<T> = Result<(T, usize), Result<usize, ParserError>>;
 
-fn deserialise_header(input: &[u8]) -> DeserialiseResult<Header> {
-    todo!()
-}
-
-pub(crate) trait RawDeserialiser {
-    fn deserialise_record_head(&self, input: &[u8]) -> DeserialiseResult<RecordMeta>;
-    fn deserialise_record_tail(&self, input: &[u8]) -> DeserialiseResult<()>;
-}
-
-#[non_exhaustive]
-#[derive(Debug, Clone)]
-pub enum AnyDeserialiser {
-    V0_0(v0_0::Deserialiser),
-}
-
-impl AnyDeserialiser {
-    pub fn new() -> Self {
-        Self::V0_0(Deserialiser)
-    }
-
-    pub fn with_version(version: (u8, u8)) -> Option<Self> {
-        match version {
-            (0, 0) => Some(Self::V0_0(Deserialiser)),
-            _ => None,
-        }
-    }
-}
-
-impl RawDeserialiser for AnyDeserialiser {
-    fn deserialise_record_head(&self, input: &[u8]) -> DeserialiseResult<RecordMeta> {
-        match self {
-            AnyDeserialiser::V0_0(des) => des.deserialise_record_head(input),
-        }
-    }
-
-    fn deserialise_record_tail(&self, input: &[u8]) -> DeserialiseResult<()> {
-        match self {
-            AnyDeserialiser::V0_0(des) => des.deserialise_record_tail(input),
-        }
-    }
-}
-
-// pub struct Uninit;
-
-// pub struct Init {
-//     version: (u8, u8),
-//     ser: Box<dyn Serialiser>,
-// }
-
+// TODO: Re-evaluate variant nessicity (e.g. length?)
 #[derive(PartialEq, Debug, Clone)]
 pub enum ParserError {
+    Need(usize),
     Unsupported((u8, u8)),
     Guard(u8),
     MagicBytes([u8; 4]),
     Length(u64),
-    Eos,
+    ContainerOverflow(u64),
+    ContainerUnderflow(u64),
+    UnexpectedEos,
 }
 
 impl Error for ParserError {}
@@ -70,132 +28,362 @@ impl Error for ParserError {}
 impl Display for ParserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ParserError::Need(n) => write!(f, "need {n} more bytes to continue"),
             ParserError::Unsupported((maj, min)) => write!(f, "unsupported version ({maj}.{min})"),
             ParserError::Guard(g) => write!(f, "expected guard ({g})"),
             ParserError::MagicBytes(b) => write!(f, "invalid magic bytes ({b:?})"),
             ParserError::Length(l) => write!(f, "invalid length ({l})"),
-            ParserError::Eos => write!(f, "parser is finished (reached eos)"),
+            ParserError::UnexpectedEos => write!(f, "unexpected eos"),
+            ParserError::ContainerOverflow(n) => {
+                write!(
+                    f,
+                    "container overflow (record is {n} bytes longer than it's container)"
+                )
+            }
+            ParserError::ContainerUnderflow(n) => {
+                write!(f, "container underflow (expected {n} more bytes)")
+            }
         }
     }
-}
-
-pub enum ParserResult {
-    HeaderData(usize),
-    RecordData(RecordMeta),
-    NeedsData(usize),
-    Eos,
-}
-
-#[derive(Debug, Default)]
-enum State {
-    #[default]
-    ReadHeader,
-    ReadRecordMeta(AnyDeserialiser),
-    ReadRecordGuard(AnyDeserialiser),
-    Eos,
 }
 
 #[derive(Default, Debug)]
 pub struct ParserBuilder {}
 
 impl ParserBuilder {
-    pub fn build_raw() -> RawParser {
-        RawParser::new()
+    pub fn build_raw<D: RawDeserialiser + Clone + Default + std::fmt::Debug>() -> Reader<D> {
+        Reader::new()
     }
+}
+
+impl<D: RawDeserialiser> ParserState<D> {
+    fn is_eos(&self) -> bool {
+        matches!(self, ParserState::Eos)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct DataChunk<'a> {
+    data: &'a [u8],
+    complete: bool,
+}
+
+impl<'a> DataChunk<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        DataChunk {
+            data,
+            complete: true,
+        }
+    }
+
+    fn new_incomplete(data: &'a [u8]) -> Self {
+        DataChunk {
+            data,
+            complete: false,
+        }
+    }
+
+    fn new_with_len(data: &'a [u8], expected_len: usize) -> Self {
+        if data.len() >= expected_len {
+            Self::new(&data[..expected_len])
+        } else {
+            Self::new_incomplete(data)
+        }
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.complete
+    }
+
+    pub fn take(self) -> &'a [u8] {
+        self.data
+    }
+}
+
+impl<'a> AsRef<[u8]> for DataChunk<'a> {
+    fn as_ref(&self) -> &[u8] {
+        self.data
+    }
+}
+
+impl<'a> From<&'a [u8]> for DataChunk<'a> {
+    fn from(value: &'a [u8]) -> Self {
+        DataChunk::new(value)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ParserEvent<'a> {
+    Header(Header),
+    HeaderUnknown(DataChunk<'a>),
+    RecordMeta(RecordMeta, usize),
+    RecordValue(DataChunk<'a>),
+    NeedData(usize),
+    Eos,
+}
+
+impl ParserEvent<'_> {
+    pub fn is_eos(&self) -> bool {
+        matches!(self, ParserEvent::Eos)
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+enum ParserState<D: RawDeserialiser> {
+    Header(Option<D>),
+    HeaderUnknown(D, u64),
+    RecordMeta(D),
+    RecordValue(D, u64),
+    Guard(D),
+    #[default]
+    Eos,
 }
 
 // TODO: Config (strictness, left-over header bytes, etc)
-pub struct RawParser {
-    state: State,
+#[derive(Debug, Default)]
+pub struct Reader<D: RawDeserialiser + Clone> {
+    state: ParserState<D>,
+    layers: Vec<u64>,
+    bytes_read: usize,
 }
 
-impl RawParser {
+impl<D: RawDeserialiser + Clone + Default + std::fmt::Debug> Reader<D> {
     fn new() -> Self {
-        Self {
-            state: State::ReadHeader,
+        Reader {
+            state: ParserState::Header(None),
+            ..Self::default()
         }
     }
 
-    pub fn builder() -> ParserBuilder {
-        ParserBuilder::default()
+    fn new_with(des: D) -> Self {
+        Reader {
+            state: ParserState::Header(Some(des)),
+            ..Self::default()
+        }
     }
 
-    pub fn reset(&mut self) {
-        self.state = State::ReadHeader
+    fn get_data_chunk<'a>(buf: &mut &'a [u8], len: usize) -> Result<DataChunk<'a>, ParserError> {
+        let data = DataChunk::new_with_len(buf, len);
+        let data_len = data.as_ref().len();
+        if data_len == 0 {
+            Err(ParserError::Need(len))
+        } else {
+            Ok(data)
+        }
     }
 
-    pub fn is_eos(&self) -> bool {
-        matches!(self.state, State::Eos)
-    }
-
-    pub fn process(&mut self, input: &[u8]) -> Result<(usize, ParserResult), ParserError> {
-        let mut read = 0;
-        let (state, res) = match std::mem::take(&mut self.state) {
-            State::ReadHeader => Self::process_header(input, &mut read),
-            State::ReadRecordMeta(des) => Self::process_record_meta(input, &mut read, des),
-            State::ReadRecordGuard(des) => Self::process_record_guard(input, &mut read, des),
-            State::Eos => Err(ParserError::Eos),
-        }?;
-        self.state = state;
-        Ok((read, res))
-    }
-
-    fn process_header(
-        input: &[u8],
-        bytes_read: &mut usize,
-    ) -> Result<(State, ParserResult), ParserError> {
-        match deserialise_header(input) {
-            Ok((header, read)) => {
-                *bytes_read += read;
-                let version = header.version();
-                match AnyDeserialiser::with_version(version) {
-                    Some(des) => {
-                        if header.remainder > 0 {
-                            Ok((
-                                State::ReadRecordMeta(des),
-                                ParserResult::HeaderData(header.remainder),
-                            ))
-                        } else {
-                            Self::process_record_meta(&input[read..], bytes_read, des)
-                        }
+    fn process<'a>(&mut self, buf: &mut &'a [u8]) -> Result<ParserEvent<'a>, ParserError> {
+        loop {
+            eprintln!("{:?}", self.state);
+            match self.impl_process(buf) {
+                Ok((maybe_event, read)) => {
+                    self.bytes_read += read;
+                    eprintln!("Depth: {}: Rem: {}: Total: {}", self.layers.len(), self.layers.last().unwrap_or(&0), self.bytes_read);
+                    *buf = &buf[read..];
+                    if let Some(event) = maybe_event {
+                        return Ok(event);
                     }
-                    None => Err(ParserError::Unsupported(version)),
                 }
+                Err(ParserError::Need(n)) => return Ok(ParserEvent::NeedData(n)),
+                Err(e) => return Err(e),
             }
-            Err(e) => e.map(|need| (State::ReadHeader, ParserResult::NeedsData(need))),
         }
     }
 
-    fn process_record_meta(
-        input: &[u8],
-        bytes_read: &mut usize,
-        des: AnyDeserialiser,
-    ) -> Result<(State, ParserResult), ParserError> {
-        match des.deserialise_record_head(input) {
-            Ok((meta, read)) => {
-                *bytes_read += read;
-                if meta.is_eos() {
-                    Ok((State::Eos, ParserResult::Eos))
+    fn impl_process<'a>(
+        &mut self,
+        buf: &mut &'a [u8],
+    ) -> Result<(Option<ParserEvent<'a>>, usize), ParserError> {
+        match self.state.clone() {
+            ParserState::Header(None) => {
+                // TODO: Change <D> to AnyDeserialiser
+                todo!()
+
+                // let (header, read) = default_deserialise_header(buf)?;
+                // let version = header.version();
+                // let des = AnyDeserialiser::with_version(version)
+                //     .ok_or(ParserError::Unsupported(version))?;
+            }
+            ParserState::Header(Some(des)) => {
+                let (header, read) = des.deserialise_header(buf)?;
+
+                self.state = match header.length.checked_sub(HEADER_LEN as u64) {
+                    Some(rem) => ParserState::HeaderUnknown(des, rem),
+                    None => ParserState::Guard(des),
+                };
+
+                Ok((Some(ParserEvent::Header(header)), read))
+            }
+            ParserState::HeaderUnknown(des, rem) => {
+                let data = Self::get_data_chunk(buf, rem as usize)?;
+                let data_len = data.as_ref().len();
+
+                self.state = if data.is_complete() {
+                    ParserState::Guard(des)
                 } else {
-                    Ok((State::ReadRecordGuard(des), ParserResult::RecordData(meta)))
+                    ParserState::HeaderUnknown(des, rem - data_len as u64)
+                };
+
+                Ok((Some(ParserEvent::HeaderUnknown(data)), data_len))
+            }
+            ParserState::RecordMeta(des) => {
+                let (meta, read) = des.deserialise_record_meta(buf)?;
+                if meta.is_eos() {
+                    self.state = ParserState::Eos;
+                    Ok((Some(ParserEvent::Eos), read))
+                } else {
+                    self.state = if meta.is_container() {
+                        // TODO: Assert validity
+                        self.layers.push(self.bytes_read as u64 + meta.length);
+                        ParserState::RecordMeta(des)
+                    } else {
+                        // TODO: Validity, cannot be < 5: Length(1 bytes) + Source(2 bytes) + Type(2 bytes) + Guard(1 bytes) == 5 minimum
+                        // TODO: Length(1 bytes) is NOT TRUE, assert consumed value correctly (make meta store length of contents only, shift during serdes)
+                        if meta.length() <= 6 {
+                            ParserState::Guard(des)
+                        } else {
+                            ParserState::RecordValue(des, meta.length() - 6)
+                        }
+                    };
+                    Ok((Some(ParserEvent::RecordMeta(meta, self.layers.len())), read))
                 }
             }
-            Err(e) => e.map(|need| (State::ReadRecordMeta(des), ParserResult::NeedsData(need))),
+            ParserState::RecordValue(des, rem) => {
+                let data = Self::get_data_chunk(buf, rem as usize)?;
+                let data_len = data.as_ref().len();
+
+                self.state = if data.is_complete() {
+                    ParserState::Guard(des)
+                } else {
+                    ParserState::RecordValue(des, rem - data_len as u64)
+                };
+
+                Ok((Some(ParserEvent::RecordValue(data)), data_len))
+            }
+            ParserState::Guard(des) => {
+                let (_, read) = des.deserialise_guard(buf)?;
+                if let Some(layer) = self.layers.last() {
+                    self.state = match layer.cmp(&(self.bytes_read as u64 + 1)) {
+                        Ordering::Less => {
+                            return Err(ParserError::ContainerUnderflow(
+                                self.bytes_read as u64 - layer,
+                            ));
+                        }
+                        Ordering::Equal => {
+                            self.layers.pop();
+                            ParserState::Guard(des)
+                        }
+                        Ordering::Greater => ParserState::RecordMeta(des),
+                    }
+                } else {
+                    self.state = ParserState::RecordMeta(des);
+                }
+
+                Ok((None, read))
+            }
+            ParserState::Eos => Err(ParserError::UnexpectedEos),
         }
     }
+}
 
-    fn process_record_guard(
-        input: &[u8],
-        bytes_read: &mut usize,
-        des: AnyDeserialiser,
-    ) -> Result<(State, ParserResult), ParserError> {
-        match des.deserialise_record_tail(input) {
-            Ok((_, read)) => {
-                *bytes_read += read;
-                let input = &input[..*bytes_read];
-                Self::process_record_meta(input, bytes_read, des)
-            }
-            Err(e) => e.map(|need| (State::ReadRecordGuard(des), ParserResult::NeedsData(need))),
-        }
+#[cfg(test)]
+mod test {
+    use crate::{
+        codec::v0_0::{
+            self,
+            test::{REF_HEADER, REF_HEADER_BYTES, REF_RECORD_META, REF_RECORD_META_BYTES},
+        },
+        data::TYPE_ID_CONTAINER_MASK,
+    };
+
+    use super::*;
+
+    #[test]
+    fn parser_no_data() {
+        let mut raw = Reader::new_with(v0_0::Deserialiser);
+        let buf: [u8; 0] = [];
+        let mut_buf = &mut buf.as_slice();
+
+        // TODO: `ParserState::ReadHeader(None)` is incomplete
+        // raw.state = ParserState::ReadHeader(None);
+        // assert_eq!(raw.process(mut_buf).unwrap(), ParserEvent::NeedData(7));
+
+        raw.state = ParserState::Header(Some(v0_0::Deserialiser));
+        assert_eq!(raw.process(mut_buf).unwrap(), ParserEvent::NeedData(7));
+
+        raw.state = ParserState::HeaderUnknown(v0_0::Deserialiser, 64);
+        assert_eq!(raw.process(mut_buf).unwrap(), ParserEvent::NeedData(64));
+
+        raw.state = ParserState::Guard(v0_0::Deserialiser);
+        assert_eq!(raw.process(mut_buf).unwrap(), ParserEvent::NeedData(1));
+
+        raw.state = ParserState::RecordValue(v0_0::Deserialiser, 64);
+        assert_eq!(raw.process(mut_buf).unwrap(), ParserEvent::NeedData(64));
+
+        // TODO: 1 is minimum to progress, but not ideal (minimum 5 required)
+        raw.state = ParserState::RecordMeta(v0_0::Deserialiser);
+        assert_eq!(raw.process(mut_buf).unwrap(), ParserEvent::NeedData(1));
+
+        raw.state = ParserState::Eos;
+        assert_eq!(
+            raw.process(mut_buf).unwrap_err(),
+            ParserError::UnexpectedEos
+        );
+    }
+
+    #[test]
+    fn parser_with_data() {
+        const REF_DATA: &[u8; 27] = constcat::concat_bytes!(
+            REF_HEADER_BYTES,
+            REF_RECORD_META_BYTES,                           // Record 1
+            &[0x00],                                         // Record 1: Guard
+            &[0b10111_u8],                                   // Record 2: Length (11)
+            &16_u16.to_le_bytes(),                           // Record 2: Source ID
+            &(1_u16 | TYPE_ID_CONTAINER_MASK).to_le_bytes(), // Record 2: Type ID
+            &[0b1101_u8],                                    // Record 3: Length (6)
+            &33_u16.to_le_bytes(),                           // Record 3: Source ID
+            &1_u16.to_le_bytes(),                            // Record 3: Type ID
+            &[0x00],                                         // Record 3: Guard
+            &[0x00],                                         // Record 2: Guard
+            &[0x00],                                         // Record 4: Length (EoS)
+        );
+        let mut reader = Reader::new_with(v0_0::Deserialiser);
+        let mut_buf = &mut REF_DATA.as_slice();
+
+        assert_eq!(
+            reader.process(mut_buf).unwrap(),
+            ParserEvent::Header(REF_HEADER)
+        );
+        // Record 1
+        assert_eq!(
+            reader.process(mut_buf).unwrap(),
+            ParserEvent::RecordMeta(REF_RECORD_META, 0)
+        );
+        // Record 2
+        assert_eq!(
+            reader.process(mut_buf).unwrap(),
+            ParserEvent::RecordMeta(
+                RecordMeta {
+                    length: 11,
+                    source_id: 16,
+                    type_id: 1 | TYPE_ID_CONTAINER_MASK
+                },
+                1
+            )
+        );
+        // Record 3
+        assert_eq!(
+            reader.process(mut_buf).unwrap(),
+            ParserEvent::RecordMeta(
+                RecordMeta {
+                    length: 6,
+                    source_id: 33,
+                    type_id: 1
+                },
+                1
+            )
+        );
+        // Record 3
+        assert_eq!(reader.process(mut_buf).unwrap(), ParserEvent::Eos);
     }
 }

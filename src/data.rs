@@ -1,23 +1,25 @@
-use crate::{CURRENT_VERSION, codec::constants::RECORD_META_MIN_LEN};
+use crate::{codec::constants::{HEADER_LEN, RECORD_META_MIN_LEN}, CURRENT_VERSION};
+
+pub(crate) const TYPE_ID_CONTAINER_MASK: u16 = 0b1000000000000000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Header {
+    pub(crate) length: u64,
     pub(crate) version: (u8, u8),
-    pub(crate) remainder: usize,
 }
 
 impl Header {
     pub fn new() -> Self {
         Header {
+            length: HEADER_LEN as u64,
             version: CURRENT_VERSION,
-            remainder: 0,
         }
     }
 
     pub fn new_with_version(major: u8, minor: u8) -> Self {
         Header {
+            length: HEADER_LEN as u64,
             version: (major, minor),
-            remainder: 0,
         }
     }
 
@@ -36,7 +38,7 @@ pub struct RecordMeta {
 impl RecordMeta {
     pub fn new(value_len: u64, source_id: u16, type_id: u16) -> Self {
         RecordMeta {
-            length: value_len + RECORD_META_MIN_LEN,
+            length: value_len + RECORD_META_MIN_LEN, // TODO: Remove dependence on const
             source_id,
             type_id,
         }
@@ -59,13 +61,18 @@ impl RecordMeta {
     }
 
     pub fn type_id(&self) -> u16 {
-        self.type_id
+        self.type_id & !TYPE_ID_CONTAINER_MASK
+    }
+
+    pub fn is_container(&self) -> bool {
+        self.type_id & TYPE_ID_CONTAINER_MASK == TYPE_ID_CONTAINER_MASK
     }
 
     pub fn value_len(&self) -> u64 {
         if self.is_eos() {
             0
         } else {
+            // TODO: Remove dependence on const
             self.length
                 .checked_sub(RECORD_META_MIN_LEN)
                 .expect("length should always be >= 5 || 0")
