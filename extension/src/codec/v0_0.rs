@@ -35,10 +35,14 @@ fn serialise_source_add(buf: &mut [u8], data: &SourceAdd) -> Result<usize, usize
     let len = buf.len();
     let mut buf = buf;
 
-    buf.insert_u64(data.id)?;
-    buf.insert_u8(data.version.0)?;
-    buf.insert_u8(data.version.1)?;
-    buf.insert(data.name.as_bytes())?;
+    if buf.len() < 10 {
+        return Err(10 - buf.len())
+    }
+
+    buf.insert_slice(&u64::to_le_bytes(data.id));
+    buf.insert_slice(&u8::to_le_bytes(data.version.0));
+    buf.insert_slice(&u8::to_le_bytes(data.version.1));
+    buf.insert_checked(data.name.as_bytes())?;
 
     Ok(len - buf.len())
 }
@@ -46,10 +50,14 @@ fn serialise_source_add(buf: &mut [u8], data: &SourceAdd) -> Result<usize, usize
 fn deserialise_source_add(buf: &[u8]) -> Result<SourceAdd, usize> {
     let mut buf = buf;
 
-    let id = buf.extract_u64()?;
-    let major = buf.extract_u8()?;
-    let minor = buf.extract_u8()?;
-    let name = buf.extract(buf.len())?;
+    if buf.len() < 10 {
+        return Err(10 - buf.len())
+    }
+
+    let id = u64::from_le_bytes(buf.extract());
+    let major = u8::from_le_bytes(buf.extract());
+    let minor = u8::from_le_bytes(buf.extract());
+    let name = buf.extract_slice_checked(buf.len())?;
     let name = str::from_utf8(name).unwrap().to_string();
 
     Ok(SourceAdd {
@@ -62,13 +70,13 @@ fn deserialise_source_add(buf: &[u8]) -> Result<SourceAdd, usize> {
 fn serialise_source_remove(buf: &mut [u8], data: &SourceRemove) -> Result<usize, usize> {
     let len = buf.len();
     let mut buf = buf;
-    buf.insert_u64(data.id)?;
+    buf.insert_checked(&u64::to_le_bytes(data.id))?;
     Ok(len - buf.len())
 }
 
 fn deserialise_source_remove(buf: &[u8]) -> Result<SourceRemove, usize> {
     let mut buf = buf;
-    let id = buf.extract_u64()?;
+    let id = u64::from_le_bytes(buf.extract_checked()?);
     Ok(SourceRemove { id })
 }
 

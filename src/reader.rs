@@ -178,7 +178,6 @@ impl<D: RawDeserialiser + Clone + Default + std::fmt::Debug> Reader<D> {
             match self.impl_process(buf) {
                 Ok((maybe_event, read)) => {
                     self.bytes_read += read;
-                    eprintln!("Depth: {}: Rem: {}: Total: {}", self.layers.len(), self.layers.last().unwrap_or(&0), self.bytes_read);
                     *buf = &buf[read..];
                     if let Some(event) = maybe_event {
                         return Ok(event);
@@ -345,7 +344,7 @@ mod test {
             &1_u16.to_le_bytes(),                            // Record 3: Type ID
             &[0x00],                                         // Record 3: Guard
             &[0x00],                                         // Record 2: Guard
-            &[0x00],                                         // Record 4: Length (EoS)
+            &[0b1_u8],                                         // Record 4: Length (EoS)
         );
         let mut reader = Reader::new_with(v0_0::Deserialiser);
         let mut_buf = &mut REF_DATA.as_slice();
@@ -354,11 +353,15 @@ mod test {
             reader.process(mut_buf).unwrap(),
             ParserEvent::Header(REF_HEADER)
         );
+        assert_eq!(mut_buf.len(), 20);
+
         // Record 1
         assert_eq!(
             reader.process(mut_buf).unwrap(),
             ParserEvent::RecordMeta(REF_RECORD_META, 0)
         );
+        assert_eq!(mut_buf.len(), 14);
+
         // Record 2
         assert_eq!(
             reader.process(mut_buf).unwrap(),
@@ -371,6 +374,8 @@ mod test {
                 1
             )
         );
+        assert_eq!(mut_buf.len(), 8);
+
         // Record 3
         assert_eq!(
             reader.process(mut_buf).unwrap(),
@@ -383,7 +388,10 @@ mod test {
                 1
             )
         );
+        assert_eq!(mut_buf.len(), 3);
+
         // Record 3
         assert_eq!(reader.process(mut_buf).unwrap(), ParserEvent::Eos);
+        assert_eq!(mut_buf.len(), 0);
     }
 }

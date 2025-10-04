@@ -1,6 +1,6 @@
 pub mod v0_0;
 
-use msrf_io::{ByteStream, error::CodecResult};
+use msrf_io::{ByteStream, error::CodecResult, varint};
 
 use crate::{
     codec::v0_0::Serialiser as SerialiserV0_0,
@@ -74,7 +74,7 @@ pub fn default_deserialise_header(buf: &[u8]) -> DesResult<Header> {
 
     // SAFETY: [u8; 4].len() == 4
     let magic_bytes = buf
-        .extract(4)
+        .extract_slice_checked(4)
         .map_err(ParserError::Need)?
         .try_into()
         .unwrap();
@@ -82,10 +82,11 @@ pub fn default_deserialise_header(buf: &[u8]) -> DesResult<Header> {
         return Err(ParserError::MagicBytes(magic_bytes));
     }
 
-    let length = buf.extract_varint().map_err(ParserError::Need)?;
-    let major = buf.extract_u8().map_err(ParserError::Need)?;
-    let minor = buf.extract_u8().map_err(ParserError::Need)?;
-
+    // TODO: Assert if byte exists?
+    let length_len = varint::len(buf[0]);
+    let length = varint::from_le_bytes(buf.extract_slice_checked(length_len).map_err(ParserError::Need)?);
+    let major = u8::from_le_bytes(buf.extract_checked().map_err(ParserError::Need)?);
+    let minor = u8::from_le_bytes(buf.extract_checked().map_err(ParserError::Need)?);
     Ok((
         Header {
             length,

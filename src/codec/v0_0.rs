@@ -1,5 +1,5 @@
 use msrf_io::error::{CodecError, CodecResult};
-use msrf_io::{ByteStream, MutByteStream};
+use msrf_io::{ByteStream, MutByteStream, varint};
 
 use crate::codec::{DesResult, RawDeserialiser};
 use crate::reader::ParserError;
@@ -19,7 +19,9 @@ impl RawDeserialiser for Deserialiser {
         let len = buf.len();
         let mut buf = buf;
 
-        let length = buf.extract_varint().map_err(ParserError::Need)?;
+        // TODO: Assert
+        let tag = varint::len(*buf.get(0).ok_or(ParserError::Need(1))?);
+        let length = varint::from_le_bytes(buf.extract_slice_checked(tag).map_err(ParserError::Need)?);
         match length {
             // 0 = End Of Stream indicator
             RECORD_EOS => Ok((RecordMeta::new_eos(), len - buf.len())),
@@ -27,8 +29,8 @@ impl RawDeserialiser for Deserialiser {
             1..RECORD_META_MIN_LEN => Err(ParserError::Length(length)),
             // Contains contents + zero/some data
             RECORD_META_MIN_LEN.. => {
-                let source_id = buf.extract_u16().map_err(ParserError::Need)?;
-                let type_id = buf.extract_u16().map_err(ParserError::Need)?;
+                let source_id = u16::from_le_bytes(buf.extract_checked().map_err(ParserError::Need)?);
+                let type_id = u16::from_le_bytes(buf.extract_checked().map_err(ParserError::Need)?);
 
                 Ok((
                     RecordMeta {
@@ -46,7 +48,7 @@ impl RawDeserialiser for Deserialiser {
         let len = buf.len();
         let mut buf = buf;
 
-        let guard = buf.extract_u8().map_err(ParserError::Need)?;
+        let guard = u8::from_le_bytes(buf.extract_checked().map_err(ParserError::Need)?);
         if guard == 0 {
             Ok(((), len - buf.len()))
         } else {
@@ -66,11 +68,13 @@ impl RawSerialiser for Serialiser {
             return Err(CodecError::Needed(HEADER_LEN - len));
         }
 
-        buf.insert(&MAGIC_BYTES)?;
-        buf.insert_varint(HEADER_CONTENTS as u64)?;
-        buf.insert_u8(header.version.0)?;
-        buf.insert_u8(header.version.1)?;
-        buf.insert_u8(0x00)?;
+        buf.insert_slice(&MAGIC_BYTES);
+        let length_varint = varint::to_le_bytes(HEADER_CONTENTS);
+        let length_varint_len = varint::len(length_varint[0]);
+        buf.insert_slice(&length_varint[..length_varint_len]);
+        buf.insert(u8::to_le_bytes(header.version.0));
+        buf.insert(u8::to_le_bytes(header.version.1));
+        buf.insert(u8::to_le_bytes(0x00));
 
         Ok(len - buf.len())
     }
@@ -79,13 +83,14 @@ impl RawSerialiser for Serialiser {
         let len = buf.len();
         let mut buf = buf;
 
-        let record_len = meta.length;
-        buf.insert_varint(record_len)?;
-        if record_len > RECORD_META_MIN_LEN {
-            buf.insert_u16(meta.source_id)?;
-            buf.insert_u16(meta.type_id)?;
-        } else if record_len != RECORD_EOS {
-            return Err(CodecError::Length(record_len));
+        let length_varint = varint::to_le_bytes(meta.length);
+        let length_varint_len = varint::len(length_varint[0]);
+        buf.insert_slice(&length_varint[..length_varint_len]);
+        if meta.length > RECORD_META_MIN_LEN {
+            buf.insert(u16::to_le_bytes(meta.source_id));
+            buf.insert(u16::to_le_bytes(meta.type_id));
+        } else if meta.length != RECORD_EOS {
+            return Err(CodecError::Length(meta.length));
         }
 
         Ok(len - buf.len())
@@ -100,22 +105,22 @@ impl RawSerialiser for Serialiser {
         }
 
         // SAFETY: [u8; 4].len() == 4
-        let magic_bytes = buf.extract(4)?.try_into().unwrap();
+        let magic_bytes = buf.extract();
         if magic_bytes != MAGIC_BYTES {
             return Err(CodecError::MagicByte(magic_bytes));
         }
-
-        let length = buf.extract_varint()?;
-        let major = buf.extract_u8()?;
-        let minor = buf.extract_u8()?;
+        let length_len = varint::len(buf[0]);
+        let length = varint::from_le_bytes(buf.extract_slice(length_len));
+        let major = u8::from_be_bytes(buf.extract());
+        let minor = u8::from_be_bytes(buf.extract());
 
         // Skip additional header data
         let remainder = (length).checked_sub(HEADER_CONTENTS).unwrap_or(0) as usize;
         if remainder > 0 {
-            buf.skip(remainder as usize)?;
+            buf = &buf[remainder as usize..];
         }
 
-        if buf.extract_u8()? != 0 {
+        if u8::from_be_bytes(buf.extract()) != 0 {
             return Err(CodecError::Guard);
         }
 
@@ -132,7 +137,8 @@ impl RawSerialiser for Serialiser {
         let len = buf.len();
         let mut buf = buf;
 
-        let length = buf.extract_varint()?;
+        let length_len = varint::len(buf[0]);
+        let length = varint::from_le_bytes(buf.extract_slice(length_len));
         match length {
             // 0 = End Of Stream indicator
             0 => Ok((RecordMeta::new_eos(), len - buf.len())),
@@ -140,8 +146,8 @@ impl RawSerialiser for Serialiser {
             1..RECORD_META_MIN_LEN => Err(CodecError::Length(length)),
             // Contains contents + zero/some data
             RECORD_META_MIN_LEN.. => {
-                let source_id = buf.extract_u16()?;
-                let type_id = buf.extract_u16()?;
+                let source_id = u16::from_le_bytes(buf.extract());
+                let type_id = u16::from_le_bytes(buf.extract());
 
                 Ok((
                     RecordMeta {

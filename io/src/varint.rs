@@ -4,29 +4,30 @@ pub fn len(tag: u8) -> usize {
     tag.trailing_zeros() as usize + 1
 }
 
-pub fn encode(buf: &mut [u8; 9], val: u64) -> usize {
+pub fn to_le_bytes(val: u64) -> [u8; 9] {
     let zeros = val.leading_zeros();
+    let mut buf = [0; 9];
 
     // Catch empty u64
     if zeros == 64 {
         buf[0] = 0x01;
-        1
+        buf
     // Catch full u64
     } else if zeros == 0 {
         buf[1..].copy_from_slice(&val.to_le_bytes());
-        9
+        buf
     // Catch var u64
     } else {
         let bytes = 8 - ((zeros - 1) / TAG_WITH_DATA_LEN as u32) as usize;
         let data = val << bytes + 1;
         buf[..=bytes].copy_from_slice(&data.to_le_bytes()[..=bytes]);
         buf[0] |= if bytes >= 8 { 0 } else { 0x01 << bytes };
-        bytes + 1
+        buf
     }
 }
 
 // PANIC: Will panic when data.is_empty()
-pub fn decode(data: &[u8]) -> u64 {
+pub fn from_le_bytes(data: &[u8]) -> u64 {
     let mut out = [0; 8];
     let len = len(data[0]);
 
@@ -46,9 +47,8 @@ mod test {
     #[test]
     fn serialise_pvarint() {
         fn harness(val: u64) {
-            let mut buf = [0; 9];
-            let len = encode(&mut buf, val);
-            let dec = decode(&buf[..len]);
+            let var = to_le_bytes(val);
+            let dec = from_le_bytes(&var);
             assert_eq!(
                 val, dec,
                 "failed to manually encode/decode {val:X} != {dec:X}"
