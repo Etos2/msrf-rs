@@ -8,11 +8,11 @@ use crate::{
 };
 
 pub(crate) mod constants {
-    pub(crate) const MAGIC_BYTES: [u8; 4] = *b"MSRF";
-    pub(crate) const HEADER_LEN: usize = 8;
-    pub(crate) const HEADER_CONTENTS: u64 = 3;
-    pub(crate) const RECORD_META_MIN_LEN: u64 = 5;
-    pub(crate) const RECORD_EOS: u64 = u64::MIN;
+    pub const MAGIC_BYTES: [u8; 4] = *b"MSRF";
+    pub const HEADER_LEN: usize = 8;
+    pub const HEADER_CONTENTS: u64 = 3;
+    pub const RECORD_META_MIN_LEN: u64 = 5;
+    pub const RECORD_EOS: u64 = u64::MIN;
 }
 
 pub type DesResult<T> = Result<(T, usize), ParserError>;
@@ -64,10 +64,10 @@ pub enum AnyDeserialiser {
 
 impl AnyDeserialiser {
     pub fn new() -> Self {
-        Self::V0_0(v0_0::Deserialiser)
+        Self::default()
     }
 
-    pub fn with_version(version: (u8, u8)) -> Option<Self> {
+    pub const fn with_version(version: (u8, u8)) -> Option<Self> {
         match version {
             (0, 0) => Some(Self::V0_0(v0_0::Deserialiser)),
             _ => None,
@@ -75,22 +75,28 @@ impl AnyDeserialiser {
     }
 }
 
+impl Default for AnyDeserialiser {
+    fn default() -> Self {
+        Self::V0_0(v0_0::Deserialiser)
+    }
+}
+
 impl RawDeserialiser for AnyDeserialiser {
     fn deserialise_header(&self, input: &[u8]) -> DesResult<Header> {
         match self {
-            AnyDeserialiser::V0_0(des) => des.deserialise_header(input),
+            Self::V0_0(des) => des.deserialise_header(input),
         }
     }
 
     fn deserialise_record_meta(&self, input: &[u8]) -> DesResult<RecordMeta> {
         match self {
-            AnyDeserialiser::V0_0(des) => des.deserialise_record_meta(input),
+            Self::V0_0(des) => des.deserialise_record_meta(input),
         }
     }
 
     fn deserialise_guard(&self, input: &[u8]) -> DesResult<()> {
         match self {
-            AnyDeserialiser::V0_0(des) => des.deserialise_guard(input),
+            Self::V0_0(des) => des.deserialise_guard(input),
         }
     }
 }

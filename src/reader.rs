@@ -1,16 +1,14 @@
 use std::{cmp::Ordering, error::Error, fmt::Display};
 
 use crate::{
-    codec::{
-        RawDeserialiser, constants::HEADER_LEN,
-    },
+    codec::{RawDeserialiser, constants::HEADER_LEN},
     data::{Header, RecordMeta},
 };
 
 pub type DeserialiseResult<T> = Result<(T, usize), Result<usize, ParserError>>;
 
 // TODO: Re-evaluate variant nessicity (e.g. length?)
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum ParserError {
     Need(usize),
     Unsupported((u8, u8)),
@@ -27,19 +25,19 @@ impl Error for ParserError {}
 impl Display for ParserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParserError::Need(n) => write!(f, "need {n} more bytes to continue"),
-            ParserError::Unsupported((maj, min)) => write!(f, "unsupported version ({maj}.{min})"),
-            ParserError::Guard(g) => write!(f, "expected guard ({g})"),
-            ParserError::MagicBytes(b) => write!(f, "invalid magic bytes ({b:?})"),
-            ParserError::Length(l) => write!(f, "invalid length ({l})"),
-            ParserError::UnexpectedEos => write!(f, "unexpected eos"),
-            ParserError::ContainerOverflow(n) => {
+            Self::Need(n) => write!(f, "need {n} more bytes to continue"),
+            Self::Unsupported((maj, min)) => write!(f, "unsupported version ({maj}.{min})"),
+            Self::Guard(g) => write!(f, "expected guard ({g})"),
+            Self::MagicBytes(b) => write!(f, "invalid magic bytes ({b:?})"),
+            Self::Length(l) => write!(f, "invalid length ({l})"),
+            Self::UnexpectedEos => write!(f, "unexpected eos"),
+            Self::ContainerOverflow(n) => {
                 write!(
                     f,
                     "container overflow (record is {n} bytes longer than it's container)"
                 )
             }
-            ParserError::ContainerUnderflow(n) => {
+            Self::ContainerUnderflow(n) => {
                 write!(f, "container underflow (expected {n} more bytes)")
             }
         }
@@ -56,26 +54,26 @@ impl ParserBuilder {
 }
 
 impl<D: RawDeserialiser> ParserState<D> {
-    fn is_eos(&self) -> bool {
-        matches!(self, ParserState::Eos)
+    const fn is_eos(&self) -> bool {
+        matches!(self, Self::Eos)
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct DataChunk<'a> {
     data: &'a [u8],
     complete: bool,
 }
 
 impl<'a> DataChunk<'a> {
-    fn new(data: &'a [u8]) -> Self {
+    const fn new(data: &'a [u8]) -> Self {
         DataChunk {
             data,
             complete: true,
         }
     }
 
-    fn new_incomplete(data: &'a [u8]) -> Self {
+    const fn new_incomplete(data: &'a [u8]) -> Self {
         DataChunk {
             data,
             complete: false,
@@ -90,16 +88,16 @@ impl<'a> DataChunk<'a> {
         }
     }
 
-    pub fn is_complete(&self) -> bool {
+    pub const fn is_complete(&self) -> bool {
         self.complete
     }
 
-    pub fn take(self) -> &'a [u8] {
+    pub const fn take(self) -> &'a [u8] {
         self.data
     }
 }
 
-impl<'a> AsRef<[u8]> for DataChunk<'a> {
+impl AsRef<[u8]> for DataChunk<'_> {
     fn as_ref(&self) -> &[u8] {
         self.data
     }
@@ -122,7 +120,7 @@ pub enum ParserEvent<'a> {
 }
 
 impl ParserEvent<'_> {
-    pub fn is_eos(&self) -> bool {
+    pub const fn is_eos(&self) -> bool {
         matches!(self, ParserEvent::Eos)
     }
 }
@@ -148,20 +146,20 @@ pub struct Reader<D: RawDeserialiser + Clone> {
 
 impl<D: RawDeserialiser + Clone + Default + std::fmt::Debug> Reader<D> {
     fn new() -> Self {
-        Reader {
+        Self {
             state: ParserState::Header(None),
             ..Self::default()
         }
     }
 
     fn new_with(des: D) -> Self {
-        Reader {
+        Self {
             state: ParserState::Header(Some(des)),
             ..Self::default()
         }
     }
 
-    fn get_data_chunk<'a>(buf: &mut &'a [u8], len: usize) -> Result<DataChunk<'a>, ParserError> {
+    fn get_data_chunk(buf: &[u8], len: usize) -> Result<DataChunk, ParserError> {
         let data = DataChunk::new_with_len(buf, len);
         let data_len = data.as_ref().len();
         if data_len == 0 {
@@ -190,7 +188,7 @@ impl<D: RawDeserialiser + Clone + Default + std::fmt::Debug> Reader<D> {
 
     fn impl_process<'a>(
         &mut self,
-        buf: &mut &'a [u8],
+        buf: &'a [u8],
     ) -> Result<(Option<ParserEvent<'a>>, usize), ParserError> {
         match self.state.clone() {
             ParserState::Header(None) => {
@@ -213,7 +211,7 @@ impl<D: RawDeserialiser + Clone + Default + std::fmt::Debug> Reader<D> {
                 Ok((Some(ParserEvent::Header(header)), read))
             }
             ParserState::HeaderUnknown(des, rem) => {
-                let data = Self::get_data_chunk(buf, rem as usize)?;
+                let data = Self::get_data_chunk(buf, usize::try_from(rem).expect("todo"))?;
                 let data_len = data.as_ref().len();
 
                 self.state = if data.is_complete() {
@@ -247,7 +245,7 @@ impl<D: RawDeserialiser + Clone + Default + std::fmt::Debug> Reader<D> {
                 }
             }
             ParserState::RecordValue(des, rem) => {
-                let data = Self::get_data_chunk(buf, rem as usize)?;
+                let data = Self::get_data_chunk(buf, usize::try_from(rem).expect("todo"))?;
                 let data_len = data.as_ref().len();
 
                 self.state = if data.is_complete() {
@@ -259,7 +257,7 @@ impl<D: RawDeserialiser + Clone + Default + std::fmt::Debug> Reader<D> {
                 Ok((Some(ParserEvent::RecordValue(data)), data_len))
             }
             ParserState::Guard(des) => {
-                let (_, read) = des.deserialise_guard(buf)?;
+                let ((), read) = des.deserialise_guard(buf)?;
                 if let Some(layer) = self.layers.last() {
                     self.state = match layer.cmp(&(self.bytes_read as u64 + 1)) {
                         Ordering::Less => {
@@ -343,7 +341,7 @@ mod test {
             &1_u16.to_le_bytes(),                            // Record 3: Type ID
             &[0x00],                                         // Record 3: Guard
             &[0x00],                                         // Record 2: Guard
-            &[0b1_u8],                                         // Record 4: Length (EoS)
+            &[0b1_u8],                                       // Record 4: Length (EoS)
         );
         let mut reader = Reader::new_with(v0_0::Deserialiser);
         let mut_buf = &mut REF_DATA.as_slice();
