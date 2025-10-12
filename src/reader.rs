@@ -2,8 +2,7 @@ use std::{cmp::Ordering, error::Error, fmt::Display};
 
 use crate::{
     codec::{
-        AnyDeserialiser, DesResult, RawDeserialiser, constants::HEADER_LEN,
-        default_deserialise_header,
+        RawDeserialiser, constants::HEADER_LEN,
     },
     data::{Header, RecordMeta},
 };

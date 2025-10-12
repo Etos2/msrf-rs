@@ -1,4 +1,4 @@
-use msrf_io::{ByteStream, MutByteStream, RecordSerialise};
+use msrf_io::{MutByteStream, RecordSerialise, TakeExt};
 
 use crate::data::Record;
 use crate::data::{ID_SOURCE_ADD, ID_SOURCE_REMOVE, SourceAdd, SourceRemove};
@@ -36,7 +36,7 @@ fn serialise_source_add(buf: &mut [u8], data: &SourceAdd) -> Result<usize, usize
     let mut buf = buf;
 
     if buf.len() < 10 {
-        return Err(10 - buf.len())
+        return Err(10 - buf.len());
     }
 
     buf.insert_slice(&u64::to_le_bytes(data.id));
@@ -51,13 +51,13 @@ fn deserialise_source_add(buf: &[u8]) -> Result<SourceAdd, usize> {
     let mut buf = buf;
 
     if buf.len() < 10 {
-        return Err(10 - buf.len())
+        return Err(10 - buf.len());
     }
 
-    let id = u64::from_le_bytes(buf.extract());
-    let major = u8::from_le_bytes(buf.extract());
-    let minor = u8::from_le_bytes(buf.extract());
-    let name = buf.extract_slice_checked(buf.len())?;
+    let id = u64::from_le_bytes(buf.take_chunk().unwrap());
+    let major = u8::from_le_bytes(buf.take_chunk().unwrap());
+    let minor = u8::from_le_bytes(buf.take_chunk().unwrap());
+    let name = buf.take_slice(buf.len()).ok_or_else(|| todo!()).unwrap();
     let name = str::from_utf8(name).unwrap().to_string();
 
     Ok(SourceAdd {
@@ -76,7 +76,7 @@ fn serialise_source_remove(buf: &mut [u8], data: &SourceRemove) -> Result<usize,
 
 fn deserialise_source_remove(buf: &[u8]) -> Result<SourceRemove, usize> {
     let mut buf = buf;
-    let id = u64::from_le_bytes(buf.extract_checked()?);
+    let id = u64::from_le_bytes(buf.take_chunk().ok_or_else(|| todo!()).unwrap());
     Ok(SourceRemove { id })
 }
 

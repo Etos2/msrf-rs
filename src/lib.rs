@@ -3,10 +3,7 @@ use std::io::Read;
 use msrf_io::error::CodecResult;
 
 use crate::{
-    codec::{
-        AnySerialiser, RawSerialiser,
-        constants::{HEADER_LEN, RECORD_META_MIN_LEN},
-    },
+    codec::constants::{HEADER_LEN, RECORD_META_MIN_LEN},
     data::{Header, RecordMeta},
 };
 

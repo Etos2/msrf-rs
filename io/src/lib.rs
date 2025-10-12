@@ -49,37 +49,23 @@ impl<'a> MutByteStream for &'a mut [u8] {
     }
 }
 
-pub trait ByteStream {
-    fn extract_slice_checked(&mut self, len: usize) -> Result<&[u8], usize>;
-    fn extract_slice(&mut self, len: usize) -> &[u8];
-
-    #[inline]
-    fn extract_checked<const N: usize>(&mut self) -> Result<[u8; N], usize> {
-        // SAFETY: self.extract(N) returns &[u8; N]
-        Ok(self.extract_slice_checked(N)?.try_into().unwrap())
-    }
-
-    #[inline]
-    fn extract<const N: usize>(&mut self) -> [u8; N] {
-        // SAFETY: self.extract(N) returns &[u8; N]
-        self.extract_slice(N).try_into().unwrap()
-    }
+pub trait TakeExt {
+    fn take_slice(&mut self, len: usize) -> Option<&[u8]>;
+    fn take_chunk<const N: usize>(&mut self) -> Option<[u8; N]>;
 }
 
-impl<'a> ByteStream for &'a [u8] {
+impl<'a> TakeExt for &'a [u8] {
     #[inline]
-    fn extract_slice_checked(&mut self, len: usize) -> Result<&[u8], usize> {
-        let (out, rem) = self.split_at_checked(len).ok_or_else(|| len - self.len())?;
+    fn take_slice(&mut self, len: usize) -> Option<&[u8]> {
+        let (out, rem) = self.split_at_checked(len)?;
         *self = rem;
-        Ok(out)
+        Some(out)
     }
 
     #[inline]
-    fn extract_slice(&mut self, len: usize) -> &[u8] {
-        assert!(len <= self.len());
-        let (out, rem) = self.split_at(len);
-        *self = rem;
-        out
+    fn take_chunk<const N: usize>(&mut self) -> Option<[u8; N]> {
+        // SAFETY: self.extract(N) returns &[u8].len() == N
+        Some(self.take_slice(N)?.try_into().unwrap())
     }
 }
 
@@ -95,25 +81,25 @@ mod test {
         buf.as_mut_slice().insert_checked(&val).unwrap();
         assert_eq!(buf, val);
         let mut buf_mut = buf.as_slice();
-        let expected = buf_mut.extract_slice_checked(val.len()).unwrap();
+        let expected = buf_mut.take_slice(val.len()).unwrap();
         assert_eq!(expected, val);
 
         buf.as_mut_slice().insert_slice(&val);
         assert_eq!(buf, val);
         let mut buf_mut = buf.as_slice();
-        let expected = buf_mut.extract_slice(val.len());
+        let expected = buf_mut.take_slice(val.len()).unwrap();
         assert_eq!(expected, val);
 
         buf.as_mut_slice().insert_array_checked(val).unwrap();
         assert_eq!(buf, val);
         let mut buf_mut = buf.as_slice();
-        let expected = buf_mut.extract_checked().unwrap();
+        let expected = buf_mut.take_chunk().unwrap();
         assert_eq!(expected, val);
 
         buf.as_mut_slice().insert(val);
         assert_eq!(buf, val);
         let mut buf_mut = buf.as_slice();
-        let expected = buf_mut.extract();
+        let expected = buf_mut.take_chunk().unwrap();
         assert_eq!(expected, val);
     }
 

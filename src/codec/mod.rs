@@ -1,9 +1,8 @@
 pub mod v0_0;
 
-use msrf_io::{ByteStream, error::CodecResult, varint};
+use msrf_io::{TakeExt, error::CodecResult, varint};
 
 use crate::{
-    codec::v0_0::Serialiser as SerialiserV0_0,
     data::{Header, RecordMeta},
     reader::ParserError,
 };
@@ -26,44 +25,6 @@ pub trait RawDeserialiser {
     fn deserialise_guard(&self, input: &[u8]) -> DesResult<()>;
 }
 
-pub trait RawSerialiser {
-    fn serialise_header(&self, buf: &mut [u8], header: &Header) -> CodecResult<usize>;
-    fn serialise_record_meta(&self, buf: &mut [u8], meta: &RecordMeta) -> CodecResult<usize>;
-    fn deserialise_header(&self, buf: &[u8]) -> CodecResult<(Header, usize)>;
-    fn deserialise_record_meta(&self, buf: &[u8]) -> CodecResult<(RecordMeta, usize)>;
-}
-
-#[non_exhaustive]
-pub enum AnySerialiser {
-    V0_0(SerialiserV0_0),
-}
-
-impl RawSerialiser for AnySerialiser {
-    fn serialise_header(&self, buf: &mut [u8], header: &Header) -> CodecResult<usize> {
-        match self {
-            AnySerialiser::V0_0(raw) => raw.serialise_header(buf, header),
-        }
-    }
-
-    fn serialise_record_meta(&self, buf: &mut [u8], meta: &RecordMeta) -> CodecResult<usize> {
-        match self {
-            AnySerialiser::V0_0(raw) => raw.serialise_record_meta(buf, meta),
-        }
-    }
-
-    fn deserialise_header(&self, buf: &[u8]) -> CodecResult<(Header, usize)> {
-        match self {
-            AnySerialiser::V0_0(raw) => raw.deserialise_header(buf),
-        }
-    }
-
-    fn deserialise_record_meta(&self, buf: &[u8]) -> CodecResult<(RecordMeta, usize)> {
-        match self {
-            AnySerialiser::V0_0(raw) => raw.deserialise_record_meta(buf),
-        }
-    }
-}
-
 pub fn default_deserialise_header(buf: &[u8]) -> DesResult<Header> {
     let len = buf.len();
     let mut buf = buf;
@@ -73,20 +34,19 @@ pub fn default_deserialise_header(buf: &[u8]) -> DesResult<Header> {
     }
 
     // SAFETY: [u8; 4].len() == 4
-    let magic_bytes = buf
-        .extract_slice_checked(4)
-        .map_err(ParserError::Need)?
-        .try_into()
-        .unwrap();
+    let magic_bytes = buf.take_chunk().unwrap();
     if magic_bytes != constants::MAGIC_BYTES {
         return Err(ParserError::MagicBytes(magic_bytes));
     }
 
     // TODO: Assert if byte exists?
     let length_len = varint::len(buf[0]);
-    let length = varint::from_le_bytes(buf.extract_slice_checked(length_len).map_err(ParserError::Need)?);
-    let major = u8::from_le_bytes(buf.extract_checked().map_err(ParserError::Need)?);
-    let minor = u8::from_le_bytes(buf.extract_checked().map_err(ParserError::Need)?);
+    let length = varint::from_le_bytes(
+        buf.take_slice(length_len)
+            .ok_or_else(|| ParserError::Need(todo!()))?,
+    );
+    let major = u8::from_le_bytes(buf.take_chunk().ok_or_else(|| ParserError::Need(todo!()))?);
+    let minor = u8::from_le_bytes(buf.take_chunk().ok_or_else(|| ParserError::Need(todo!()))?);
     Ok((
         Header {
             length,
