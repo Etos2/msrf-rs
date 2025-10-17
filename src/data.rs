@@ -7,23 +7,17 @@ pub(crate) const TYPE_ID_CONTAINER_MASK: u16 = 0b1000_0000_0000_0000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Header {
-    pub(crate) length: u64,
-    pub(crate) version: (u8, u8),
+    pub version: u16,
 }
 
 impl Header {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub const fn new_with_version(major: u8, minor: u8) -> Self {
+    pub const fn new(version: u16) -> Self {
         Self {
-            length: HEADER_LEN as u64,
-            version: (major, minor),
+            version
         }
     }
 
-    pub const fn version(&self) -> (u8, u8) {
+    pub const fn version(&self) -> u16 {
         self.version
     }
 }
@@ -31,7 +25,6 @@ impl Header {
 impl Default for Header {
     fn default() -> Self {
         Self {
-            length: HEADER_LEN as u64,
             version: CURRENT_VERSION,
         }
     }

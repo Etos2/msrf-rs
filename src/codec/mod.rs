@@ -1,15 +1,17 @@
-pub mod v0_0;
+pub mod v0;
 
-use msrf_io::{TakeExt, error::CodecResult, varint};
+use std::{convert::Infallible, io::Read};
 
 use crate::{
+    CURRENT_VERSION,
+    codec::constants::{HEADER_LEN, MAGIC_BYTES},
     data::{Header, RecordMeta},
-    reader::ParserError,
+    reader::{IoParserError, ParserError},
 };
 
 pub(crate) mod constants {
     pub const MAGIC_BYTES: [u8; 4] = *b"MSRF";
-    pub const HEADER_LEN: usize = 8;
+    pub const HEADER_LEN: usize = 7;
     pub const HEADER_CONTENTS: u64 = 3;
     pub const RECORD_META_MIN_LEN: u64 = 5;
     pub const RECORD_EOS: u64 = u64::MIN;
@@ -17,86 +19,60 @@ pub(crate) mod constants {
 
 pub type DesResult<T> = Result<(T, usize), ParserError>;
 
+// TODO: Add options
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DesOptions;
+
 pub trait RawDeserialiser {
-    fn deserialise_header(&self, input: &[u8]) -> DesResult<Header> {
-        default_deserialise_header(input)
-    }
-    fn deserialise_record_meta(&self, input: &[u8]) -> DesResult<RecordMeta>;
-    fn deserialise_guard(&self, input: &[u8]) -> DesResult<()>;
+    const VERSION: usize;
+    fn read_record(&self, rdr: impl Read) -> Result<RecordMeta, IoParserError>;
 }
 
-pub fn default_deserialise_header(buf: &[u8]) -> DesResult<Header> {
-    let len = buf.len();
-    let mut buf = buf;
+#[derive(Debug, PartialEq, Eq)]
+pub struct UnknownDeserialiser;
 
-    if constants::HEADER_LEN - 1 > len {
-        return Err(ParserError::Need(constants::HEADER_LEN - 1 - len));
-    }
-
-    // SAFETY: [u8; 4].len() == 4
-    let magic_bytes = buf.take_chunk().unwrap();
-    if magic_bytes != constants::MAGIC_BYTES {
-        return Err(ParserError::MagicBytes(magic_bytes));
-    }
-
-    // TODO: Assert if byte exists?
-    let length_len = varint::len(buf[0]);
-    let length = varint::from_le_bytes(
-        buf.take_slice(length_len)
-            .ok_or_else(|| ParserError::Need(todo!()))?,
-    );
-    let major = u8::from_le_bytes(buf.take_chunk().ok_or_else(|| ParserError::Need(todo!()))?);
-    let minor = u8::from_le_bytes(buf.take_chunk().ok_or_else(|| ParserError::Need(todo!()))?);
-    Ok((
-        Header {
-            length,
-            version: (major, minor),
-        },
-        len - buf.len(),
-    ))
-}
-
-#[non_exhaustive]
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AnyDeserialiser {
-    V0_0(v0_0::Deserialiser),
+    V0(v0::Deserialiser),
 }
 
 impl AnyDeserialiser {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(version: u16, options: DesOptions) -> Option<Self> {
+        if version > CURRENT_VERSION {
+            None
+        } else {
+            Some(Self::new_impl(version, options))
+        }
     }
 
-    pub const fn with_version(version: (u8, u8)) -> Option<Self> {
+    pub fn new_default(version: u16) -> Option<Self> {
+        if version > CURRENT_VERSION {
+            None
+        } else {
+            Some(Self::new_impl(version, DesOptions::default()))
+        }
+    }
+
+    fn new_impl(version: u16, options: DesOptions) -> Self {
         match version {
-            (0, 0) => Some(Self::V0_0(v0_0::Deserialiser)),
-            _ => None,
+            0 => Self::V0(options.into()),
+            _ => unreachable!(),
         }
     }
 }
 
-impl Default for AnyDeserialiser {
-    fn default() -> Self {
-        Self::V0_0(v0_0::Deserialiser)
-    }
-}
-
-impl RawDeserialiser for AnyDeserialiser {
-    fn deserialise_header(&self, input: &[u8]) -> DesResult<Header> {
-        match self {
-            Self::V0_0(des) => des.deserialise_header(input),
-        }
+// TODO: Consts for byte indexes
+pub fn read_header(input: &[u8; HEADER_LEN]) -> Result<Header, ParserError> {
+    // SAFETY: input[4..6].len() == 2
+    let magic_bytes = input[..4].try_into().unwrap();
+    if magic_bytes != MAGIC_BYTES {
+        return Err(ParserError::MagicBytes(magic_bytes));
+    } else if input[6] != 0 {
+        return Err(ParserError::Guard(input[6]));
     }
 
-    fn deserialise_record_meta(&self, input: &[u8]) -> DesResult<RecordMeta> {
-        match self {
-            Self::V0_0(des) => des.deserialise_record_meta(input),
-        }
-    }
+    // SAFETY: input[4..6].len() == 2
+    let version = u16::from_le_bytes(input[4..6].try_into().unwrap());
 
-    fn deserialise_guard(&self, input: &[u8]) -> DesResult<()> {
-        match self {
-            Self::V0_0(des) => des.deserialise_guard(input),
-        }
-    }
+    Ok(Header { version })
 }

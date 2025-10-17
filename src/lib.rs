@@ -11,5 +11,4 @@ pub mod codec;
 pub mod data;
 pub mod reader;
 
-const VERSION_TABLE: &[(u8, u8)] = &[(0, 0)];
-const CURRENT_VERSION: (u8, u8) = (0, 0);
+const CURRENT_VERSION: u16 = 0;
