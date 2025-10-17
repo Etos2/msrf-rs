@@ -1,7 +1,4 @@
-use crate::{
-    CURRENT_VERSION,
-    codec::constants::{HEADER_LEN, RECORD_META_MIN_LEN},
-};
+use crate::{CURRENT_VERSION, codec::constants::RECORD_META_MIN_LEN};
 
 pub(crate) const TYPE_ID_CONTAINER_MASK: u16 = 0b1000_0000_0000_0000;
 
@@ -12,9 +9,7 @@ pub struct Header {
 
 impl Header {
     pub const fn new(version: u16) -> Self {
-        Self {
-            version
-        }
+        Self { version }
     }
 
     pub const fn version(&self) -> u16 {

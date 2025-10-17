@@ -30,13 +30,13 @@ pub trait MutByteStream {
     }
 }
 
-impl<'a> MutByteStream for &'a mut [u8] {
+impl MutByteStream for &mut [u8] {
     #[inline]
     fn insert_checked(&mut self, data: &[u8]) -> Result<(), usize> {
         let (dst, rem) = std::mem::take(self)
             .split_at_mut_checked(data.len())
             .ok_or_else(|| data.len() - self.len())?;
-        dst.copy_from_slice(&data);
+        dst.copy_from_slice(data);
         *self = rem;
         Ok(())
     }
@@ -44,7 +44,7 @@ impl<'a> MutByteStream for &'a mut [u8] {
     #[inline]
     fn insert_slice(&mut self, data: &[u8]) {
         let (dst, rem) = std::mem::take(self).split_at_mut(data.len());
-        dst.copy_from_slice(&data);
+        dst.copy_from_slice(data);
         *self = rem;
     }
 }
@@ -54,7 +54,7 @@ pub trait TakeExt {
     fn take_chunk<const N: usize>(&mut self) -> Option<[u8; N]>;
 }
 
-impl<'a> TakeExt for &'a [u8] {
+impl TakeExt for &[u8] {
     #[inline]
     fn take_slice(&mut self, len: usize) -> Option<&[u8]> {
         let (out, rem) = self.split_at_checked(len)?;

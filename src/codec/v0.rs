@@ -1,11 +1,7 @@
-use msrf_io::{TakeExt, varint};
+use msrf_io::varint;
 
-use crate::codec::{DesOptions, DesResult, RawDeserialiser};
-use crate::reader::ParserError;
-use crate::{
-    codec::constants::{RECORD_EOS, RECORD_META_MIN_LEN},
-    data::RecordMeta,
-};
+use crate::codec::{DesOptions, RawDeserialiser};
+use crate::data::RecordMeta;
 
 pub const HEADER_LEN: usize = 2;
 pub const RECORD_META_LEN: usize = 2;
@@ -48,17 +44,7 @@ impl RawDeserialiser for Deserialiser {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::{codec::constants::MAGIC_BYTES, data::Header};
-
     use super::*;
-
-    pub(crate) const REF_HEADER: Header = Header { version: 3 };
-
-    pub(crate) const REF_HEADER_BYTES: &[u8; 7] = constcat::concat_bytes!(
-        &MAGIC_BYTES,  // Magic bytes
-        &[3_u8, 0_u8], // Version
-        &[0x00]        // Guard
-    );
 
     pub(crate) const REF_RECORD_META: RecordMeta = RecordMeta {
         length: 6,

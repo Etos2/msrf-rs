@@ -93,7 +93,7 @@ impl<R: Read> MsrfReader<Unknown, R> {
 
         let header = codec::read_header(&buf)?;
         let des = AnyDeserialiser::new_default(header.version)
-            .ok_or_else(|| ParserError::Unsupported(header.version))?;
+            .ok_or(ParserError::Unsupported(header.version))?;
 
         Ok(MsrfReader { rdr: self.rdr, des })
     }
@@ -118,6 +118,10 @@ impl<'a, R: Read> RecordChunk<'a, R> {
 
     pub fn len(&self) -> u64 {
         self.0.limit()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.limit() == 0
     }
 }
 

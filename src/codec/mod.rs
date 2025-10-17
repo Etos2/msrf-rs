@@ -1,6 +1,6 @@
 pub mod v0;
 
-use std::{convert::Infallible, io::Read};
+use std::io::Read;
 
 use crate::{
     CURRENT_VERSION,
@@ -12,9 +12,8 @@ use crate::{
 pub(crate) mod constants {
     pub const MAGIC_BYTES: [u8; 4] = *b"MSRF";
     pub const HEADER_LEN: usize = 7;
-    pub const HEADER_CONTENTS: u64 = 3;
     pub const RECORD_META_MIN_LEN: u64 = 5;
-    pub const RECORD_EOS: u64 = u64::MIN;
+    pub const RECORD_EOS: u16 = u16::MAX;
 }
 
 pub type DesResult<T> = Result<(T, usize), ParserError>;
@@ -49,7 +48,7 @@ impl AnyDeserialiser {
         if version > CURRENT_VERSION {
             None
         } else {
-            Some(Self::new_impl(version, DesOptions::default()))
+            Some(Self::new_impl(version, DesOptions))
         }
     }
 
@@ -61,6 +60,7 @@ impl AnyDeserialiser {
     }
 }
 
+// TODO: Reader impl
 // TODO: Consts for byte indexes
 pub fn read_header(input: &[u8; HEADER_LEN]) -> Result<Header, ParserError> {
     // SAFETY: input[4..6].len() == 2
@@ -75,4 +75,44 @@ pub fn read_header(input: &[u8; HEADER_LEN]) -> Result<Header, ParserError> {
     let version = u16::from_le_bytes(input[4..6].try_into().unwrap());
 
     Ok(Header { version })
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::{codec::constants::MAGIC_BYTES, data::Header};
+
+    pub(crate) const REF_HEADER: Header = Header { version: 3 };
+
+    pub(crate) const REF_HEADER_BYTES: &[u8; HEADER_LEN] = constcat::concat_bytes!(
+        &MAGIC_BYTES,  // Magic bytes
+        &[3_u8, 0_u8], // Version
+        &[0x00]        // Guard
+    );
+
+    #[test]
+    fn des_header() {
+        let header = read_header(REF_HEADER_BYTES).expect("failed parse");
+        assert_eq!(header, REF_HEADER);
+    }
+
+    #[test]
+    fn des_invalid_header() {
+        let mut invalid_bytes = REF_HEADER_BYTES.clone();
+        let invalid_magic = b"BAD!";
+        invalid_bytes[..4].copy_from_slice(invalid_magic);
+
+        let header = read_header(&invalid_bytes).expect_err("succeeded parse");
+        assert_eq!(header, ParserError::MagicBytes(*invalid_magic));
+    }
+
+    #[test]
+    fn des_invalid_guard() {
+        let mut invalid_bytes = REF_HEADER_BYTES.clone();
+        let invalid_guard = 42;
+        invalid_bytes[6] = invalid_guard;
+
+        let header = read_header(&invalid_bytes).expect_err("succeeded parse");
+        assert_eq!(header, ParserError::Guard(invalid_guard));
+    }
 }

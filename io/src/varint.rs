@@ -19,7 +19,7 @@ pub fn to_le_bytes(val: u64) -> [u8; 9] {
     // Catch var u64
     } else {
         let bytes = 8 - ((zeros - 1) / TAG_WITH_DATA_LEN as u32) as usize;
-        let data = val << bytes + 1;
+        let data = val << (bytes + 1);
         buf[..=bytes].copy_from_slice(&data.to_le_bytes()[..=bytes]);
         buf[0] |= if bytes >= 8 { 0 } else { 0x01 << bytes };
         buf
