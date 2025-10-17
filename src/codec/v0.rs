@@ -1,7 +1,6 @@
-use msrf_io::varint;
-
 use crate::RecordMeta;
-use crate::codec::{DesOptions, RawDeserialiser};
+use crate::codec::{DesOptions, RawDeserialiser, varint};
+use crate::error::{IoError, ParserError};
 
 pub const HEADER_LEN: usize = 2;
 pub const RECORD_META_LEN: usize = 2;
@@ -20,10 +19,7 @@ impl From<DesOptions> for Deserialiser {
 impl RawDeserialiser for Deserialiser {
     const VERSION: usize = 0;
 
-    fn read_record(
-        &self,
-        mut rdr: impl std::io::Read,
-    ) -> Result<RecordMeta, crate::reader::IoParserError> {
+    fn read_record(&self, mut rdr: impl std::io::Read) -> Result<RecordMeta, IoError<ParserError>> {
         let mut buf = [0; 13];
         rdr.read_exact(&mut buf[..5])?;
         let source_id = u16::from_le_bytes(buf[..2].try_into().unwrap()); // Safety: buf[..2].len() == 2

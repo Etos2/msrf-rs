@@ -1,12 +1,12 @@
 pub mod v0;
+mod varint;
 
 use std::io::Read;
 
 use crate::{
-    CURRENT_VERSION,
+    CURRENT_VERSION, Header, RecordMeta,
     codec::constants::{HEADER_LEN, MAGIC_BYTES},
-    reader::{IoParserError, ParserError},
-    {Header, RecordMeta},
+    error::{IoError, ParserError},
 };
 
 pub(crate) mod constants {
@@ -15,15 +15,13 @@ pub(crate) mod constants {
     pub const RECORD_EOS: u16 = u16::MAX;
 }
 
-pub type DesResult<T> = Result<(T, usize), ParserError>;
-
 // TODO: Add options
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DesOptions;
 
 pub trait RawDeserialiser {
     const VERSION: usize;
-    fn read_record(&self, rdr: impl Read) -> Result<RecordMeta, IoParserError>;
+    fn read_record(&self, rdr: impl Read) -> Result<RecordMeta, IoError<ParserError>>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -96,7 +94,7 @@ mod test {
     }
 
     #[test]
-    fn des_invalid_header() {
+    fn des_header_invalid_magic() {
         let mut invalid_bytes = REF_HEADER_BYTES.clone();
         let invalid_magic = b"BAD!";
         invalid_bytes[..4].copy_from_slice(invalid_magic);
@@ -106,7 +104,7 @@ mod test {
     }
 
     #[test]
-    fn des_invalid_guard() {
+    fn des_header_invalid_guard() {
         let mut invalid_bytes = REF_HEADER_BYTES.clone();
         let invalid_guard = 42;
         invalid_bytes[6] = invalid_guard;

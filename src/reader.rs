@@ -1,83 +1,10 @@
-use std::{
-    error::Error,
-    fmt::Display,
-    io::{self, Read},
-};
+use std::io::{self, Read};
 
 use crate::{
-    RecordId,
-    codec::{self, AnyDeserialiser, RawDeserialiser, constants::HEADER_LEN},
+    codec::{self, constants::HEADER_LEN, AnyDeserialiser, RawDeserialiser}, error::{IoError, ParserError}, RecordId
 };
 
 pub type DeserialiseResult<T> = Result<(T, usize), Result<usize, ParserError>>;
-
-// TODO: Re-evaluate variant nessicity (e.g. length?)
-#[derive(PartialEq, Eq, Debug, Clone)]
-pub enum ParserError {
-    Need(usize),      // TODO: Remove
-    Unsupported(u16), // TODO: Remove
-    Guard(u8),
-    MagicBytes([u8; 4]),
-    Length(u64),
-    ContainerOverflow(u64), // TODO: Combine ContainerOverflow & ContainerUnderflow (use i64)
-    ContainerUnderflow(u64), // TODO: Combine ContainerOverflow & ContainerUnderflow (use i64)
-    UnexpectedEos,
-}
-
-impl Error for ParserError {}
-
-impl Display for ParserError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Need(n) => write!(f, "need {n} more bytes to continue"),
-            Self::Unsupported(ver) => {
-                write!(f, "unsupported version (v{ver})")
-            }
-            Self::Guard(g) => write!(f, "expected guard ({g})"),
-            Self::MagicBytes(b) => write!(f, "invalid magic bytes ({b:?})"),
-            Self::Length(l) => write!(f, "invalid length ({l})"),
-            Self::UnexpectedEos => write!(f, "unexpected eos"),
-            Self::ContainerOverflow(n) => {
-                write!(
-                    f,
-                    "container overflow (record is {n} bytes longer than it's container)"
-                )
-            }
-            Self::ContainerUnderflow(n) => {
-                write!(f, "container underflow (expected {n} more bytes)")
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum IoParserError {
-    Parser(ParserError),
-    Io(std::io::Error),
-}
-
-impl Error for IoParserError {}
-
-impl Display for IoParserError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IoParserError::Parser(e) => e.fmt(f),
-            IoParserError::Io(e) => e.fmt(f),
-        }
-    }
-}
-
-impl From<ParserError> for IoParserError {
-    fn from(value: ParserError) -> Self {
-        Self::Parser(value)
-    }
-}
-
-impl From<std::io::Error> for IoParserError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
-    }
-}
 
 pub struct Unknown;
 
@@ -87,7 +14,7 @@ pub struct MsrfReader<D, R> {
 }
 
 impl<R: Read> MsrfReader<Unknown, R> {
-    pub fn init(mut self) -> Result<MsrfReader<AnyDeserialiser, R>, IoParserError> {
+    pub fn init(mut self) -> Result<MsrfReader<AnyDeserialiser, R>, IoError<ParserError>> {
         let mut buf = [0; HEADER_LEN];
         self.rdr.read_exact(&mut buf)?;
 
@@ -100,7 +27,7 @@ impl<R: Read> MsrfReader<Unknown, R> {
 }
 
 impl<D: RawDeserialiser, R: Read> MsrfReader<D, R> {
-    pub fn read_record<'a>(&'a mut self) -> Result<(RecordId, RecordChunk<'a, R>), IoParserError> {
+    pub fn read_record<'a>(&'a mut self) -> Result<(RecordId, RecordChunk<'a, R>), IoError<ParserError>> {
         let record = self.des.read_record(&mut self.rdr)?;
         let ref_rdr = RecordChunk::new(&mut self.rdr, record.length);
         Ok((record.into_ids(), ref_rdr))

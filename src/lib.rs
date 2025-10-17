@@ -1,6 +1,9 @@
 use crate::codec::constants::RECORD_EOS;
 
+pub mod error;
+#[cfg(feature = "reader")]
 pub mod codec;
+#[cfg(feature = "reader")]
 pub mod reader;
 
 pub const CURRENT_VERSION: u16 = 0;

@@ -3,13 +3,15 @@ name = "msrf"
 version = "0.0.1"
 edition = "2024"
 
-[dependencies]
+[features]
+default = ["reader"]
+reader = []
+
+[dev-dependencies]
 constcat = "0.6.1"
-msrf-io = {path = "io"}
 
 [workspace]
 resolver = "2"
 members = [
     "extension",
-    "io",
 ]
