@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
+    RecordId,
     codec::{self, AnyDeserialiser, RawDeserialiser, constants::HEADER_LEN},
-    data::RecordMeta,
 };
 
 pub type DeserialiseResult<T> = Result<(T, usize), Result<usize, ParserError>>;
@@ -100,12 +100,10 @@ impl<R: Read> MsrfReader<Unknown, R> {
 }
 
 impl<D: RawDeserialiser, R: Read> MsrfReader<D, R> {
-    pub fn read_record<'a>(
-        &'a mut self,
-    ) -> Result<(RecordMeta, RecordChunk<'a, R>), IoParserError> {
+    pub fn read_record<'a>(&'a mut self) -> Result<(RecordId, RecordChunk<'a, R>), IoParserError> {
         let record = self.des.read_record(&mut self.rdr)?;
         let ref_rdr = RecordChunk::new(&mut self.rdr, record.length);
-        Ok((record, ref_rdr))
+        Ok((record.into_ids(), ref_rdr))
     }
 }
 
@@ -189,12 +187,12 @@ mod test {
         };
 
         let (meta, mut user_rdr) = reader.read_record().expect("failed to parse record");
-        assert_eq!(meta, REF_RECORD_META);
-        assert_eq!(user_rdr.len(), meta.length);
+        assert_eq!(meta, REF_RECORD_META.into_ids());
+        assert_eq!(user_rdr.len(), REF_RECORD_META.len());
 
         let mut user_buf = Vec::new();
         assert_eq!(
-            meta.length as usize,
+            user_rdr.len() as usize,
             user_rdr.read_to_end(&mut user_buf).expect("io fail")
         );
         assert_eq!(user_rdr.len(), 0);

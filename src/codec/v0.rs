@@ -1,7 +1,7 @@
 use msrf_io::varint;
 
+use crate::RecordMeta;
 use crate::codec::{DesOptions, RawDeserialiser};
-use crate::data::RecordMeta;
 
 pub const HEADER_LEN: usize = 2;
 pub const RECORD_META_LEN: usize = 2;

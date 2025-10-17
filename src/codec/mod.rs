@@ -5,14 +5,13 @@ use std::io::Read;
 use crate::{
     CURRENT_VERSION,
     codec::constants::{HEADER_LEN, MAGIC_BYTES},
-    data::{Header, RecordMeta},
     reader::{IoParserError, ParserError},
+    {Header, RecordMeta},
 };
 
 pub(crate) mod constants {
     pub const MAGIC_BYTES: [u8; 4] = *b"MSRF";
     pub const HEADER_LEN: usize = 7;
-    pub const RECORD_META_MIN_LEN: u64 = 5;
     pub const RECORD_EOS: u16 = u16::MAX;
 }
 
@@ -80,7 +79,7 @@ pub fn read_header(input: &[u8; HEADER_LEN]) -> Result<Header, ParserError> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{codec::constants::MAGIC_BYTES, data::Header};
+    use crate::{Header, codec::constants::MAGIC_BYTES};
 
     pub(crate) const REF_HEADER: Header = Header { version: 3 };
 
