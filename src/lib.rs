@@ -78,10 +78,6 @@ impl RecordMeta {
     pub const fn value_len(&self) -> u64 {
         self.length
     }
-
-    pub const fn into_ids(self) -> RecordId {
-        RecordId::new(self.source_id, self.type_id)
-    }
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
@@ -120,6 +116,12 @@ impl RecordId {
     }
 }
 
+impl From<RecordMeta> for RecordId {
+    fn from(value: RecordMeta) -> Self {
+        RecordId::new(value.source_id, value.type_id)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -137,7 +139,7 @@ mod test {
     #[test]
     fn record_interop() {
         let record_meta = RecordMeta::new(LEN, SOURCE, TYPE);
-        let record_id = record_meta.into_ids();
+        let record_id = RecordId::from(record_meta);
 
         assert_eq!(record_meta, record_id.into_meta(LEN));
         assert_pair_eq(record_meta.is_container(), record_id.is_container(), false);
@@ -150,7 +152,7 @@ mod test {
     fn record_interop_container() {
         const TYPE_WITH_CONTAINER: u16 = TYPE | TYPE_CONTAINER_MASK;
         let record_meta = RecordMeta::new(LEN, SOURCE, TYPE_WITH_CONTAINER);
-        let record_id = record_meta.into_ids();
+        let record_id = RecordId::from(record_meta);
 
         assert_eq!(record_meta, record_id.into_meta(LEN));
         assert_pair_eq(record_meta.is_container(), record_id.is_container(), true);
@@ -162,7 +164,7 @@ mod test {
     #[test]
     fn record_interop_eos() {
         let record_meta = RecordMeta::new(LEN, RECORD_EOS, TYPE);
-        let record_id = record_meta.into_ids();
+        let record_id = RecordId::from(record_meta);
 
         assert_eq!(record_meta, record_id.into_meta(LEN));
         assert_pair_eq(record_meta.is_container(), record_id.is_container(), false);

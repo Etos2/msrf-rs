@@ -34,7 +34,8 @@ impl<D: RawDeserialiser, R: Read> MsrfReader<D, R> {
     ) -> Result<(RecordId, RecordChunk<'a, R>), IoError<ParserError>> {
         let record = self.des.read_record(&mut self.rdr)?;
         let ref_rdr = RecordChunk::new(&mut self.rdr, record.length);
-        Ok((record.into_ids(), ref_rdr))
+        let id = RecordId::from(record);
+        Ok((id, ref_rdr))
     }
 }
 
@@ -123,8 +124,8 @@ mod test {
             des: v0::Deserialiser::default(),
         };
 
-        let (meta, mut user_rdr) = reader.read_record().expect("failed to parse record");
-        assert_eq!(meta, REF_RECORD_META.into_ids());
+        let (id, mut user_rdr) = reader.read_record().expect("failed to parse record");
+        assert_eq!(id, REF_RECORD_META.into());
         assert_eq!(user_rdr.len(), REF_RECORD_META.len());
 
         let mut user_buf = Vec::new();

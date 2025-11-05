@@ -6,25 +6,26 @@ use crate::{SourceAdd, SourceRemove, codec::RawDeserialiser, error::DesError};
 
 pub struct Deserialiser;
 
-const SOURCE_ADD_MIN: usize = 4;
-const SOURCE_REMOVE_MIN: usize = 2;
+const SOURCE_ADD_LEN: usize = 4;
+const SOURCE_REMOVE_LEN: usize = 2;
 
 impl RawDeserialiser for Deserialiser {
     fn read_source_add<R: Read>(&self, rdr: &mut R) -> Result<SourceAdd, IoError<DesError>> {
-        let mut buf = [0; SOURCE_ADD_MIN];
+        let mut buf = [0; SOURCE_ADD_LEN];
         rdr.read_exact(&mut buf)?;
         let mut name_buf = String::new();
         rdr.read_to_string(&mut name_buf)?;
 
+        
         Ok(SourceAdd {
-            id: u16::from_le_bytes(buf[..2].try_into().unwrap()), // SAFETY: buf[..2].len() == size_of<u16>()
-            version: u16::from_le_bytes(buf[2..].try_into().unwrap()), // SAFETY: buf[2..].len() == size_of<u16>()
+            id: u16::from_le_bytes(*buf.first_chunk().unwrap()), // SAFETY: [u8; 2] == size_of<u16>()
+            version: u16::from_le_bytes(*buf.first_chunk().unwrap()), // SAFETY: [u8; 2] == size_of<u16>()
             name: name_buf,
         })
     }
 
     fn read_source_remove<R: Read>(&self, rdr: &mut R) -> Result<SourceRemove, IoError<DesError>> {
-        let mut buf = [0; SOURCE_REMOVE_MIN];
+        let mut buf = [0; SOURCE_REMOVE_LEN];
         rdr.read_exact(&mut buf)?;
 
         Ok(SourceRemove {
