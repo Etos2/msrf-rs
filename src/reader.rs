@@ -1,7 +1,9 @@
 use std::io::{self, Read};
 
 use crate::{
-    codec::{self, constants::HEADER_LEN, AnyDeserialiser, RawDeserialiser}, error::{IoError, ParserError}, RecordId
+    RecordId,
+    codec::{self, AnyDeserialiser, RawDeserialiser, constants::HEADER_LEN},
+    error::{IoError, ParserError},
 };
 
 pub type DeserialiseResult<T> = Result<(T, usize), Result<usize, ParserError>>;
@@ -27,7 +29,9 @@ impl<R: Read> MsrfReader<Unknown, R> {
 }
 
 impl<D: RawDeserialiser, R: Read> MsrfReader<D, R> {
-    pub fn read_record<'a>(&'a mut self) -> Result<(RecordId, RecordChunk<'a, R>), IoError<ParserError>> {
+    pub fn read_record<'a>(
+        &'a mut self,
+    ) -> Result<(RecordId, RecordChunk<'a, R>), IoError<ParserError>> {
         let record = self.des.read_record(&mut self.rdr)?;
         let ref_rdr = RecordChunk::new(&mut self.rdr, record.length);
         Ok((record.into_ids(), ref_rdr))
@@ -48,6 +52,14 @@ impl<'a, R: Read> RecordChunk<'a, R> {
     pub fn is_empty(&self) -> bool {
         self.0.limit() == 0
     }
+
+    pub fn drain(&mut self) -> io::Result<()> {
+        if self.0.limit() > 0 {
+            io::copy(&mut self.0, &mut io::sink()).map(|_| ())
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl<'a, R: Read> Read for RecordChunk<'a, R> {
@@ -58,10 +70,8 @@ impl<'a, R: Read> Read for RecordChunk<'a, R> {
 
 impl<'a, R: Read> Drop for RecordChunk<'a, R> {
     fn drop(&mut self) {
-        if self.0.limit() > 0 {
-            // BufWriter<W> drop impl also performs IO (flushing) on drop, we shall pretend this is normal
-            let _res = io::copy(&mut self.0, &mut io::sink());
-        }
+        // BufWriter<W> drop impl also performs IO (flushing) on drop, we shall pretend this is normal
+        let _res = self.drain();
     }
 }
 

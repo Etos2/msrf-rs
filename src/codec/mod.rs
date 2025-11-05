@@ -12,7 +12,6 @@ use crate::{
 pub(crate) mod constants {
     pub const MAGIC_BYTES: [u8; 4] = *b"MSRF";
     pub const HEADER_LEN: usize = 7;
-    pub const RECORD_EOS: u16 = u16::MAX;
 }
 
 // TODO: Add options

@@ -1,11 +1,10 @@
-use crate::codec::constants::RECORD_EOS;
-
 pub mod error;
 #[cfg(feature = "reader")]
 pub mod codec;
 #[cfg(feature = "reader")]
 pub mod reader;
 
+pub const RECORD_EOS: u16 = u16::MAX;
 pub const CURRENT_VERSION: u16 = 0;
 pub(crate) const TYPE_CONTAINER_MASK: u16 = 0b1000_0000_0000_0000;
 

@@ -1,18 +1,18 @@
-use std::{fmt::Display};
+use std::fmt::Display;
 
-#[derive(Debug, PartialEq)]
-pub enum Error {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DesError {
     UnexpectedType(u16),
-    InvalidValueLength,
+    UnexpectedLength(u64),
 }
 
-impl Display for Error {
+impl Display for DesError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::UnexpectedType(id) => write!(f, "unexpected type {id}"),
-            Error::InvalidValueLength => write!(f, "value too small"),
+            Self::UnexpectedType(id) => write!(f, "unexpected type id ({id:#06x})"),
+            Self::UnexpectedLength(len) => write!(f, "record too small ({len})"),
         }
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for DesError {}

@@ -4,5 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+msrf = { path = "../", default-features = false }
+
+[dev-dependencies]
 constcat = "0.6.1"
-msrf-io = {path = "../io"}

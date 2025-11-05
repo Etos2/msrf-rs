@@ -1,149 +1,80 @@
-use msrf_io::{MutByteStream, RecordSerialise, TakeExt};
+use std::io::Read;
 
-use crate::data::Record;
-use crate::data::{ID_SOURCE_ADD, ID_SOURCE_REMOVE, SourceAdd, SourceRemove};
-use crate::error::Error;
-pub struct Serialiser;
+use msrf::error::IoError;
 
-impl RecordSerialise for Serialiser {
-    type Err = Error;
-    type Record = Record;
+use crate::{SourceAdd, SourceRemove, codec::RawDeserialiser, error::DesError};
 
-    fn deserialise_record(&self, id: u16, value: &[u8]) -> Result<Self::Record, Self::Err> {
-        match id {
-            ID_SOURCE_ADD => deserialise_source_add(value).map(Record::from),
-            ID_SOURCE_REMOVE => deserialise_source_remove(value).map(Record::from),
-            id => return Err(Error::UnexpectedType(id)),
-        }
-        .map_err(|_| Error::InvalidValueLength)
+pub struct Deserialiser;
+
+const SOURCE_ADD_MIN: usize = 4;
+const SOURCE_REMOVE_MIN: usize = 2;
+
+impl RawDeserialiser for Deserialiser {
+    fn read_source_add<R: Read>(&self, rdr: &mut R) -> Result<SourceAdd, IoError<DesError>> {
+        let mut buf = [0; SOURCE_ADD_MIN];
+        rdr.read_exact(&mut buf)?;
+        let mut name_buf = String::new();
+        rdr.read_to_string(&mut name_buf)?;
+
+        Ok(SourceAdd {
+            id: u16::from_le_bytes(buf[..2].try_into().unwrap()), // SAFETY: buf[..2].len() == size_of<u16>()
+            version: u16::from_le_bytes(buf[2..].try_into().unwrap()), // SAFETY: buf[2..].len() == size_of<u16>()
+            name: name_buf,
+        })
     }
 
-    fn serialise_record(
-        &self,
-        value: &mut [u8],
-        record: &Self::Record,
-    ) -> Result<usize, Self::Err> {
-        match record {
-            Record::SourceAdd(source_add) => serialise_source_add(value, source_add),
-            Record::SourceRemove(source_remove) => serialise_source_remove(value, source_remove),
-        }
-        .map_err(|_| Error::InvalidValueLength)
+    fn read_source_remove<R: Read>(&self, rdr: &mut R) -> Result<SourceRemove, IoError<DesError>> {
+        let mut buf = [0; SOURCE_REMOVE_MIN];
+        rdr.read_exact(&mut buf)?;
+
+        Ok(SourceRemove {
+            id: u16::from_le_bytes(buf),
+        })
     }
-}
-
-fn serialise_source_add(buf: &mut [u8], data: &SourceAdd) -> Result<usize, usize> {
-    let len = buf.len();
-    let mut buf = buf;
-
-    if buf.len() < 10 {
-        return Err(10 - buf.len());
-    }
-
-    buf.insert_slice(&u64::to_le_bytes(data.id));
-    buf.insert_slice(&u8::to_le_bytes(data.version.0));
-    buf.insert_slice(&u8::to_le_bytes(data.version.1));
-    buf.insert_checked(data.name.as_bytes())?;
-
-    Ok(len - buf.len())
-}
-
-fn deserialise_source_add(buf: &[u8]) -> Result<SourceAdd, usize> {
-    let mut buf = buf;
-
-    if buf.len() < 10 {
-        return Err(10 - buf.len());
-    }
-
-    let id = u64::from_le_bytes(buf.take_chunk().unwrap());
-    let major = u8::from_le_bytes(buf.take_chunk().unwrap());
-    let minor = u8::from_le_bytes(buf.take_chunk().unwrap());
-    let name = buf.take_slice(buf.len()).ok_or_else(|| todo!()).unwrap();
-    let name = str::from_utf8(name).unwrap().to_string();
-
-    Ok(SourceAdd {
-        id,
-        version: (major, minor),
-        name,
-    })
-}
-
-fn serialise_source_remove(buf: &mut [u8], data: &SourceRemove) -> Result<usize, usize> {
-    let len = buf.len();
-    let mut buf = buf;
-    buf.insert_checked(&u64::to_le_bytes(data.id))?;
-    Ok(len - buf.len())
-}
-
-fn deserialise_source_remove(buf: &[u8]) -> Result<SourceRemove, usize> {
-    let mut buf = buf;
-    let id = u64::from_le_bytes(buf.take_chunk().ok_or_else(|| todo!()).unwrap());
-    Ok(SourceRemove { id })
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-
-    fn serialise_record_harness(sample: Record, expected: &[u8]) {
-        let serialiser = Serialiser;
-        let record = serialiser
-            .deserialise_record(sample.type_id(), expected)
-            .expect("failed deserialise");
-
-        assert_eq!(record, sample);
-
-        let mut buf = vec![0; expected.len()];
-        let written = serialiser
-            .serialise_record(buf.as_mut_slice(), &record)
-            .expect("failed serialise");
-
-        assert_eq!(written, buf.len());
-        assert_eq!(buf, expected);
-    }
+    use std::io::Cursor;
 
     #[test]
-    fn serialise_source_add() {
-        serialise_record_harness(
-            Record::SourceAdd(SourceAdd {
-                id: 21,
-                version: (0, 1),
-                name: String::from("test"),
-            }),
-            constcat::concat_bytes!(
-                &21u64.to_le_bytes(),
-                &0u8.to_le_bytes(),
-                &1u8.to_le_bytes(),
-                b"test".as_slice()
-            ),
+    fn des_source_add() {
+        const REF_SOURCE_ADD_BYTES: &[u8; 14] = constcat::concat_bytes!(
+            &u16::to_le_bytes(32),
+            &u16::to_le_bytes(1),
+            b"pxls.space".as_slice(),
         );
-    }
 
-    #[test]
-    fn serialise_source_remove() {
-        serialise_record_harness(
-            Record::SourceRemove(SourceRemove { id: 21 }),
-            &21u64.to_le_bytes(),
+        let mut rdr = Cursor::new(REF_SOURCE_ADD_BYTES).take(14);
+        let des = Deserialiser;
+
+        assert_eq!(
+            des.read_source_add(&mut rdr).expect("failed des"),
+            SourceAdd {
+                id: 32,
+                version: 1,
+                name: String::from("pxls.space"),
+            }
         );
+
+        let mut dump = [0; 1];
+        assert_eq!(rdr.into_inner().read(&mut dump).expect("failed IO"), 0)
     }
 
     #[test]
-    fn serialise_invalid_id() {
-        const INVALID_ID: u16 = 0xFFFF;
-        let serialiser = Serialiser;
-        let res = serialiser.deserialise_record(INVALID_ID, &[]);
-        assert_eq!(res, Err(Error::UnexpectedType(INVALID_ID)));
-    }
+    fn des_source_remove() {
+        const REF_SOURCE_REMOVE_BYTES: &[u8; 2] = &u16::to_le_bytes(32);
 
-    #[test]
-    fn serialise_invalid_len() {
-        fn harness(id: u16) {
-            const INVALID_BYTES: [u8; 3] = [1, 2, 3];
-            let serialiser = Serialiser;
-            let res = serialiser.deserialise_record(id, &INVALID_BYTES);
-            assert_eq!(res, Err(Error::InvalidValueLength));
-        }
+        let mut rdr = Cursor::new(REF_SOURCE_REMOVE_BYTES).take(2);
+        let des = Deserialiser;
 
-        harness(ID_SOURCE_ADD);
-        harness(ID_SOURCE_REMOVE);
+        assert_eq!(
+            des.read_source_remove(&mut rdr).expect("failed des"),
+            SourceRemove { id: 32 }
+        );
+
+        let mut dump = [0; 1];
+        assert_eq!(rdr.into_inner().read(&mut dump).expect("failed IO"), 0)
     }
 }
