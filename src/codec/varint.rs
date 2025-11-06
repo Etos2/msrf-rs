@@ -26,6 +26,7 @@ pub fn to_le_bytes(val: u64) -> [u8; 9] {
     }
 }
 
+// TODO: Don't panic!
 // PANIC: Will panic when data.is_empty()
 pub fn from_le_bytes(data: &[u8]) -> u64 {
     let mut out = [0; 8];

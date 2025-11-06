@@ -1,6 +1,7 @@
-pub mod error;
 #[cfg(feature = "reader")]
 pub mod codec;
+pub mod error;
+pub mod io;
 #[cfg(feature = "reader")]
 pub mod reader;
 

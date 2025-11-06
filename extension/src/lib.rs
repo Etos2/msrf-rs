@@ -1,6 +1,8 @@
 pub mod codec;
 pub mod error;
+pub mod reader;
 
+pub const MSRF_EXT_MAP_ID: u16 = 0x00;
 pub const ID_SOURCE_ADD: u16 = 0x00;
 pub const ID_SOURCE_REMOVE: u16 = 0x01;
 
@@ -34,10 +36,10 @@ impl AssignedId for SourceRemove {
 
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-#[repr(u8)]
+#[repr(u16)]
 pub enum Record {
-    SourceAdd(SourceAdd) = SourceAdd::TYPE_ID as u8,
-    SourceRemove(SourceRemove) = SourceRemove::TYPE_ID as u8,
+    SourceAdd(SourceAdd) = SourceAdd::TYPE_ID,
+    SourceRemove(SourceRemove) = SourceRemove::TYPE_ID,
 }
 
 impl Record {
