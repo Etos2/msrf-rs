@@ -18,12 +18,12 @@ pub(crate) mod constants {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DesOptions;
 
-pub(crate) trait RawDeserialiser {
+pub trait RawDeserialiser {
     const VERSION: usize;
     fn read_record(&self, rdr: impl Read) -> Result<RecordMeta, IoError<ParserError>>;
 }
 
-pub(crate) trait RawSerialiser {
+pub trait RawSerialiser {
     const VERSION: usize;
     fn write_record(&self, meta: RecordMeta, wtr: impl Write) -> Result<(), IoError<ParserError>>;
 }
