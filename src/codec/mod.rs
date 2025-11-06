@@ -1,7 +1,7 @@
 pub mod v0;
 mod varint;
 
-use std::io::Read;
+use std::io::{Read, Write};
 
 use crate::{
     CURRENT_VERSION, Header, RecordMeta,
@@ -18,19 +18,31 @@ pub(crate) mod constants {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DesOptions;
 
-pub trait RawDeserialiser {
+pub(crate) trait RawDeserialiser {
     const VERSION: usize;
     fn read_record(&self, rdr: impl Read) -> Result<RecordMeta, IoError<ParserError>>;
+}
+
+pub(crate) trait RawSerialiser {
+    const VERSION: usize;
+    fn write_record(&self, meta: RecordMeta, wtr: impl Write) -> Result<(), IoError<ParserError>>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct UnknownDeserialiser;
 
 #[derive(Debug, PartialEq, Eq)]
+pub struct UnknownSerialiser;
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum AnyDeserialiser {
     V0(v0::Deserialiser),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum AnySerialiser {
+    V0(v0::Serialiser),
+}
 impl AnyDeserialiser {
     pub fn new(version: u16, options: DesOptions) -> Option<Self> {
         if version > CURRENT_VERSION {
