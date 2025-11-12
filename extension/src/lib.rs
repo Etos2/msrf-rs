@@ -86,7 +86,7 @@ impl SourceRegistrar {
 
     pub fn register(&mut self, name: impl Into<String> + AsRef<str>) -> Result<u16, u16> {
         if let Some(id) = self.get_by_source(name.as_ref()) {
-            return Err(id)
+            return Err(id);
         }
 
         let id = self.next_id.get();
@@ -142,6 +142,10 @@ impl SourceRegistrar {
         })
     }
 
+    pub fn get_by_id(&self, id: u16) -> Option<&str> {
+        self.map.get(&id).map(String::as_str)
+    }
+
     pub fn get_by_source(&self, source: impl AsRef<str>) -> Option<u16> {
         let name_rhs = source.as_ref();
         self.map
@@ -150,8 +154,8 @@ impl SourceRegistrar {
             .map(|(id, _)| *id)
     }
 
-    pub fn get_by_id(&self, id: u16) -> Option<&str> {
-        self.map.get(&id).map(String::as_str)
+    pub fn sources(&self) -> impl Iterator<Item = (u16, &str)> {
+        self.map.iter().map(|(id, name)| (*id, name.as_str()))
     }
 
     fn next_free_id(&self) -> NonZeroU16 {
@@ -187,43 +191,81 @@ mod test {
 
     use super::*;
 
+    
+    const ROOT_A: &str = "msrf-ext";
+    const ROOT_B: &str = "arbitrary-ext";
+    const SOURCE_A: &str = "pxls-space-ext";
+    const SOURCE_B: &str = "canvas-ext";
+    const SOURCE_C: &str = "r-place-ext";
+
     #[test]
     fn source_registrar_register() {
-        const ROOT_A: &str = "pxls-space-ext";
-        const ROOT_B: &str = "canvas-ext";
-        const ROOT_C: &str = "r-place-ext";
         let mut registrar = SourceRegistrar::new();
 
-        assert_eq!(registrar.register(ROOT_A), Ok(1));
-        assert_eq!(registrar.register(ROOT_B), Ok(2));
-        assert_eq!(registrar.get_by_id(1), Some(ROOT_A));
-        assert_eq!(registrar.get_by_id(2), Some(ROOT_B));
+        // Register SOURCE_A & SOURCE_B
+        assert_eq!(registrar.register(SOURCE_A), Ok(1));
+        assert_eq!(registrar.register(SOURCE_B), Ok(2));
+        assert_eq!(registrar.get_by_id(1), Some(SOURCE_A));
+        assert_eq!(registrar.get_by_id(2), Some(SOURCE_B));
 
-        assert_eq!(registrar.remove_by_id(1), Some(ROOT_A.to_string()));
-        assert_eq!(registrar.register(ROOT_C), Ok(1));
-        assert_eq!(registrar.get_by_id(1), Some(ROOT_C));
-        assert_eq!(registrar.get_by_id(2), Some(ROOT_B));
+        // Register SOURCE_C after removing SOURCE_A
+        assert_eq!(registrar.remove_by_id(1), Some(SOURCE_A.to_string()));
+        assert_eq!(registrar.register(SOURCE_C), Ok(1));
+        assert_eq!(registrar.get_by_id(1), Some(SOURCE_C));
+        assert_eq!(registrar.get_by_id(2), Some(SOURCE_B));
+    }
+
+    #[test]
+    fn source_registrar_iter() {
+        let mut registrar = SourceRegistrar::new();
+
+        assert_eq!(registrar.register_root(ROOT_A), None);
+        assert_eq!(registrar.register(SOURCE_A), Ok(1));
+        assert_eq!(registrar.register(SOURCE_B), Ok(2));
+        assert_eq!(registrar.register(SOURCE_C), Ok(3));
+
+        {
+            let mut iter = registrar.sources();
+            assert_eq!(iter.next(), Some((0, ROOT_A)));
+            assert_eq!(iter.next(), Some((1, SOURCE_A)));
+            assert_eq!(iter.next(), Some((2, SOURCE_B)));
+            assert_eq!(iter.next(), Some((3, SOURCE_C)));
+            assert_eq!(iter.next(), None);
+        }
+
+        assert_eq!(registrar.remove_by_id(1), Some(SOURCE_A.to_string()));
+        assert_eq!(registrar.remove_by_source(SOURCE_B), Some(2));
+
+        {
+            let mut iter = registrar.sources();
+            assert_eq!(iter.next(), Some((0, ROOT_A)));
+            assert_eq!(iter.next(), Some((3, SOURCE_C)));
+            assert_eq!(iter.next(), None);
+        }
     }
 
     #[test]
     fn source_registrar_register_root() {
-        const ROOT_A: &str = "msrf-ext";
-        const ROOT_B: &str = "arbitrary-ext";
         let mut registrar = SourceRegistrar::new();
 
+        // Register ROOT_A
         assert_eq!(registrar.register_root(ROOT_A), None);
         assert_eq!(registrar.register_root(ROOT_B), Some(ROOT_A));
         assert_eq!(registrar.get_by_id(0), Some(ROOT_A));
 
+        // Register ROOT_B by removing ROOT_A by ID
         assert_eq!(registrar.remove_by_id(0), Some(ROOT_A.to_string()));
         assert_eq!(registrar.register_root(ROOT_B), None);
         assert_eq!(registrar.get_by_id(0), Some(ROOT_B));
+
+        // Register ROOT_A by removing ROOT_B by Source
+        assert_eq!(registrar.remove_by_source(ROOT_B), Some(0));
+        assert_eq!(registrar.register_root(ROOT_A), None);
+        assert_eq!(registrar.get_by_id(0), Some(ROOT_A));
     }
 
     #[test]
     fn source_registrar_id_selection() {
-        const ROOT_A: &str = "pxls-space-ext";
-        const ROOT_B: &str = "arbitrary-ext";
         let mut registrar = SourceRegistrar::new();
 
         // Check ordinary sequential ID
