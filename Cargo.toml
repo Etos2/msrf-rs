@@ -4,8 +4,9 @@ version = "0.0.1"
 edition = "2024"
 
 [features]
-default = ["reader"]
+default = ["reader", "writer"]
 reader = []
+writer = []
 
 [dev-dependencies]
 constcat = "0.6.1"

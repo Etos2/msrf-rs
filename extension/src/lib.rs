@@ -6,6 +6,7 @@ use std::{
 pub mod codec;
 pub mod error;
 pub mod reader;
+pub mod writer;
 
 pub const MSRF_EXT_MAP_ID: u16 = 0x00;
 pub const ID_SOURCE_ADD: u16 = 0x00;
@@ -74,7 +75,7 @@ impl From<SourceRemove> for Record {
 }
 
 #[derive(Debug)]
-struct SourceRegistrar {
+pub struct SourceRegistrar {
     map: BTreeMap<u16, String>,
     next_id: NonZeroU16,
 }

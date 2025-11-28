@@ -98,7 +98,7 @@ mod test {
     }
 
     #[test]
-    fn des_source_remove() {
+    fn serdes_source_remove() {
         const REF_SOURCE_REMOVE_BYTES: &[u8; 2] = &u16::to_le_bytes(32);
         const REF_SOURCE_REMOVE: SourceRemove = SourceRemove { id: 32 };
 

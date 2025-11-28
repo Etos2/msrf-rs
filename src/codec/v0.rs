@@ -16,7 +16,7 @@ pub struct Serialiser {
 impl RawSerialiser for Serialiser {
     const VERSION: usize = VERSION;
 
-    fn write_record(&self, meta: RecordMeta, mut wtr: impl Write) -> Result<(), IoError<ParserError>> {
+    fn write_meta(&self, meta: RecordMeta, mut wtr: impl Write) -> Result<(), IoError<ParserError>> {
         wtr.write_all(&meta.source_id.to_le_bytes())?;
         wtr.write_all(&meta.type_id.to_le_bytes())?;
         let varint_bytes = varint::to_le_bytes(meta.length);
@@ -41,7 +41,7 @@ impl From<DesOptions> for Deserialiser {
 impl RawDeserialiser for Deserialiser {
     const VERSION: usize = VERSION;
 
-    fn read_record(&self, mut rdr: impl Read) -> Result<RecordMeta, IoError<ParserError>> {
+    fn read_meta(&self, mut rdr: impl Read) -> Result<RecordMeta, IoError<ParserError>> {
         let mut buf = [0; 13];
         rdr.read_exact(&mut buf[..5])?;
         let source_id = u16::from_le_bytes(buf[..2].try_into().unwrap()); // Safety: buf[..2].len() == 2
@@ -83,11 +83,11 @@ pub(crate) mod test {
         let ser = Serialiser::default();
         let mut buf = [0u8; 5];
 
-        ser.write_record(REF_RECORD_META, buf.as_mut_slice()).expect("ser fail");
+        ser.write_meta(REF_RECORD_META, buf.as_mut_slice()).expect("ser fail");
         assert_eq!(&buf, REF_RECORD_META_BYTES);
 
         let mut rdr = Cursor::new(buf);
-        let meta = des.read_record(&mut rdr).expect("des fail");
+        let meta = des.read_meta(&mut rdr).expect("des fail");
         assert_eq!(meta, REF_RECORD_META);
         assert_eq!(rdr.position(), 5);
     }

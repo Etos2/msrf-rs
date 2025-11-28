@@ -1,9 +1,11 @@
-#[cfg(feature = "reader")]
+#[cfg(any(feature = "reader", feature = "writer"))]
 pub mod codec;
 pub mod error;
 pub mod io;
 #[cfg(feature = "reader")]
 pub mod reader;
+#[cfg(feature = "writer")]
+pub mod writer;
 
 pub const RECORD_EOS: u16 = u16::MAX;
 pub const CURRENT_VERSION: u16 = 0;

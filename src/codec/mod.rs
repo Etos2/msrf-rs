@@ -20,12 +20,12 @@ pub struct DesOptions;
 
 pub trait RawDeserialiser {
     const VERSION: usize;
-    fn read_record(&self, rdr: impl Read) -> Result<RecordMeta, IoError<ParserError>>;
+    fn read_meta(&self, rdr: impl Read) -> Result<RecordMeta, IoError<ParserError>>;
 }
 
 pub trait RawSerialiser {
     const VERSION: usize;
-    fn write_record(&self, meta: RecordMeta, wtr: impl Write) -> Result<(), IoError<ParserError>>;
+    fn write_meta(&self, meta: RecordMeta, wtr: impl Write) -> Result<(), IoError<ParserError>>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -83,6 +83,13 @@ pub fn read_header(input: &[u8; HEADER_LEN]) -> Result<Header, ParserError> {
     let version = u16::from_le_bytes(input[4..6].try_into().unwrap());
 
     Ok(Header { version })
+}
+
+pub fn write_header<W: Write>(mut wtr: W, header: Header) -> Result<(), IoError<ParserError>> {
+    wtr.write_all(&MAGIC_BYTES)?;
+    wtr.write_all(&header.version().to_le_bytes())?;
+    wtr.write_all(&[0x00])?;
+    Ok(())
 }
 
 #[cfg(test)]

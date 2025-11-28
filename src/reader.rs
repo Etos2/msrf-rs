@@ -1,16 +1,20 @@
-use std::io::{self, Read};
+use std::io::Read;
 
 use crate::{
     RecordId,
     codec::{self, AnyDeserialiser, RawDeserialiser, constants::HEADER_LEN},
-    error::{IoError, ParserError}, io::RecordChunk,
+    error::{IoError, ParserError},
+    io::RecordChunk,
 };
 
 pub type DeserialiseResult<T> = Result<(T, usize), Result<usize, ParserError>>;
 
 pub struct Unknown;
 
+// TODO: Builder
+// TODO: Config
 pub struct MsrfReader<D, R> {
+    is_finished: bool,
     rdr: R,
     des: D,
 }
@@ -24,18 +28,31 @@ impl<R: Read> MsrfReader<Unknown, R> {
         let des = AnyDeserialiser::new_default(header.version)
             .ok_or(ParserError::Unsupported(header.version))?;
 
-        Ok(MsrfReader { rdr: self.rdr, des })
+        Ok(MsrfReader {
+            is_finished: false,
+            rdr: self.rdr,
+            des,
+        })
     }
 }
 
 impl<D: RawDeserialiser, R: Read> MsrfReader<D, R> {
     pub fn read_record<'a>(
         &'a mut self,
-    ) -> Result<(RecordId, RecordChunk<'a, R>), IoError<ParserError>> {
-        let record = self.des.read_record(&mut self.rdr)?;
+    ) -> Result<Option<(RecordId, RecordChunk<'a, R>)>, IoError<ParserError>> {
+        let record = self.des.read_meta(&mut self.rdr)?;
+        if record.is_eos() {
+            return if self.is_finished {
+                Err(IoError::Parser(ParserError::IsEos))
+            } else {
+                self.is_finished = true;
+                Ok(None)
+            };
+        }
+
         let ref_rdr = RecordChunk::new(&mut self.rdr, record.length);
         let id = RecordId::from(record);
-        Ok((id, ref_rdr))
+        Ok(Some((id, ref_rdr)))
     }
 }
 
@@ -66,6 +83,7 @@ mod test {
         let data = REF_HEADER_BYTES;
         let internal_rdr = Cursor::new(data);
         let reader = MsrfReader {
+            is_finished: false,
             rdr: internal_rdr,
             des: Unknown,
         };
@@ -83,11 +101,13 @@ mod test {
 
         let internal_rdr = Cursor::new(data);
         let mut reader = MsrfReader {
+            is_finished: false,
             rdr: internal_rdr,
             des: v0::Deserialiser::default(),
         };
 
-        let (id, mut user_rdr) = reader.read_record().expect("failed to parse record");
+        let res = reader.read_record().expect("failed to parse record");
+        let (id, mut user_rdr) = res.expect("unexpected eos");
         assert_eq!(id, REF_RECORD_META.into());
         assert_eq!(user_rdr.len(), REF_RECORD_META.len());
 
