@@ -4,7 +4,7 @@ use std::{error::Error, fmt::Display};
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum ParserError {
     Need(usize),      // TODO: Remove
-    Unsupported(u16), // TODO: Remove
+    Unsupported(u16),
     Guard(u8),
     MagicBytes([u8; 4]),
     Length(u64),

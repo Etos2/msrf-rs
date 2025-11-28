@@ -1,15 +1,44 @@
 use std::io::Read;
 
 use crate::{
-    RecordId,
-    codec::{self, AnyDeserialiser, RawDeserialiser, constants::HEADER_LEN},
+    CURRENT_VERSION, RecordId,
+    codec::{self, AnyDeserialiser, RawDeserialiser, UnknownSerdes, constants::HEADER_LEN},
     error::{IoError, ParserError},
     io::RecordChunk,
 };
 
 pub type DeserialiseResult<T> = Result<(T, usize), Result<usize, ParserError>>;
 
-pub struct Unknown;
+#[derive(Debug, Default, Clone)]
+pub struct MsrfReaderBuilder {
+    version: Option<u16>,
+}
+
+impl MsrfReaderBuilder {
+    pub fn new() -> Self {
+        MsrfReaderBuilder::default()
+    }
+
+    pub fn version(mut self, version: u16) -> MsrfReaderBuilder {
+        self.version = Some(version);
+        self
+    }
+
+    // TODO: Error
+    pub fn build<R: Read>(self, wtr: R) -> Result<MsrfReader<AnyDeserialiser, R>, ()> {
+        let version = self.version.unwrap_or(CURRENT_VERSION);
+        let des = AnyDeserialiser::new_default(version).ok_or(())?;
+        Ok(MsrfReader::new(wtr, des))
+    }
+
+    pub fn build_with_unknown<R: Read>(self, wtr: R) -> MsrfReader<UnknownSerdes, R> {
+        MsrfReader::new_unknown(wtr)
+    }
+
+    pub fn build_with<R: Read, D: RawDeserialiser>(self, wtr: R, des: D) -> MsrfReader<D, R> {
+        MsrfReader::new(wtr, des)
+    }
+}
 
 // TODO: Builder
 // TODO: Config
@@ -19,8 +48,16 @@ pub struct MsrfReader<D, R> {
     des: D,
 }
 
-impl<R: Read> MsrfReader<Unknown, R> {
-    pub fn init(mut self) -> Result<MsrfReader<AnyDeserialiser, R>, IoError<ParserError>> {
+impl<R: Read> MsrfReader<UnknownSerdes, R> {
+    pub fn new_unknown(rdr: R) -> MsrfReader<UnknownSerdes, R> {
+        MsrfReader {
+            is_finished: false,
+            rdr,
+            des: UnknownSerdes,
+        }
+    }
+
+    pub fn initialise(mut self) -> Result<MsrfReader<AnyDeserialiser, R>, IoError<ParserError>> {
         let mut buf = [0; HEADER_LEN];
         self.rdr.read_exact(&mut buf)?;
 
@@ -37,6 +74,14 @@ impl<R: Read> MsrfReader<Unknown, R> {
 }
 
 impl<D: RawDeserialiser, R: Read> MsrfReader<D, R> {
+    pub fn new(rdr: R, des: D) -> MsrfReader<D, R> {
+        MsrfReader {
+            is_finished: false,
+            rdr,
+            des,
+        }
+    }
+
     pub fn read_record<'a>(
         &'a mut self,
     ) -> Result<Option<(RecordId, RecordChunk<'a, R>)>, IoError<ParserError>> {
@@ -69,7 +114,7 @@ mod test {
                 test::{REF_RECORD_META, REF_RECORD_META_BYTES},
             },
         },
-        reader::{MsrfReader, Unknown},
+        reader::MsrfReader,
     };
 
     const REF_HEADER_BYTES: &[u8; 7] = constcat::concat_bytes!(
@@ -82,13 +127,9 @@ mod test {
     fn find_version() {
         let data = REF_HEADER_BYTES;
         let internal_rdr = Cursor::new(data);
-        let reader = MsrfReader {
-            is_finished: false,
-            rdr: internal_rdr,
-            des: Unknown,
-        };
+        let reader = MsrfReader::new_unknown(internal_rdr);
 
-        let reader = reader.init().expect("failed to find deserialiser");
+        let reader = reader.initialise().expect("failed to find deserialiser");
         assert_eq!(reader.des, AnyDeserialiser::V0(v0::Deserialiser::default()))
     }
 
@@ -100,11 +141,7 @@ mod test {
         data.extend_from_slice(&[0]); // Guard
 
         let internal_rdr = Cursor::new(data);
-        let mut reader = MsrfReader {
-            is_finished: false,
-            rdr: internal_rdr,
-            des: v0::Deserialiser::default(),
-        };
+        let mut reader = MsrfReader::new(internal_rdr, v0::Deserialiser::default());
 
         let res = reader.read_record().expect("failed to parse record");
         let (id, mut user_rdr) = res.expect("unexpected eos");

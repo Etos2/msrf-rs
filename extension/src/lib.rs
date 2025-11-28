@@ -8,7 +8,9 @@ pub mod error;
 pub mod reader;
 pub mod writer;
 
+pub const MSRF_EXT_NAME: &str = "msrf-ext";
 pub const MSRF_EXT_MAP_ID: u16 = 0x00;
+
 pub const ID_SOURCE_ADD: u16 = 0x00;
 pub const ID_SOURCE_REMOVE: u16 = 0x01;
 

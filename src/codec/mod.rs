@@ -18,31 +18,26 @@ pub(crate) mod constants {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DesOptions;
 
+// TODO: Add options
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SerOptions;
+
 pub trait RawDeserialiser {
-    const VERSION: usize;
     fn read_meta(&self, rdr: impl Read) -> Result<RecordMeta, IoError<ParserError>>;
 }
 
 pub trait RawSerialiser {
-    const VERSION: usize;
     fn write_meta(&self, meta: RecordMeta, wtr: impl Write) -> Result<(), IoError<ParserError>>;
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct UnknownDeserialiser;
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct UnknownSerialiser;
+pub struct UnknownSerdes;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AnyDeserialiser {
     V0(v0::Deserialiser),
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum AnySerialiser {
-    V0(v0::Serialiser),
-}
 impl AnyDeserialiser {
     pub fn new(version: u16, options: DesOptions) -> Option<Self> {
         if version > CURRENT_VERSION {
@@ -64,6 +59,52 @@ impl AnyDeserialiser {
         match version {
             0 => Self::V0(options.into()),
             _ => unreachable!(),
+        }
+    }
+}
+
+impl RawDeserialiser for AnyDeserialiser {
+    fn read_meta(&self, rdr: impl Read) -> Result<RecordMeta, IoError<ParserError>> {
+        match self {
+            AnyDeserialiser::V0(des) => des.read_meta(rdr),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum AnySerialiser {
+    V0(v0::Serialiser),
+}
+
+impl AnySerialiser {
+    pub fn new(version: u16, options: SerOptions) -> Option<Self> {
+        if version > CURRENT_VERSION {
+            None
+        } else {
+            Some(Self::new_impl(version, options))
+        }
+    }
+
+    pub fn new_default(version: u16) -> Option<Self> {
+        if version > CURRENT_VERSION {
+            None
+        } else {
+            Some(Self::new_impl(version, SerOptions))
+        }
+    }
+
+    fn new_impl(version: u16, options: SerOptions) -> Self {
+        match version {
+            0 => Self::V0(options.into()),
+            _ => todo!("version control"),
+        }
+    }
+}
+
+impl RawSerialiser for AnySerialiser {
+    fn write_meta(&self, meta: RecordMeta, wtr: impl Write) -> Result<(), IoError<ParserError>> {
+        match self {
+            AnySerialiser::V0(ser) => ser.write_meta(meta, wtr),
         }
     }
 }

@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 
 use crate::RecordMeta;
-use crate::codec::{DesOptions, RawDeserialiser, RawSerialiser, varint};
+use crate::codec::{DesOptions, RawDeserialiser, RawSerialiser, SerOptions, varint};
 use crate::error::{IoError, ParserError};
 
 pub const VERSION: usize = 0;
@@ -10,13 +10,15 @@ pub const RECORD_META_LEN: usize = 2;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Serialiser {
-    // options: 
+    options: SerOptions,
 }
 
 impl RawSerialiser for Serialiser {
-    const VERSION: usize = VERSION;
-
-    fn write_meta(&self, meta: RecordMeta, mut wtr: impl Write) -> Result<(), IoError<ParserError>> {
+    fn write_meta(
+        &self,
+        meta: RecordMeta,
+        mut wtr: impl Write,
+    ) -> Result<(), IoError<ParserError>> {
         wtr.write_all(&meta.source_id.to_le_bytes())?;
         wtr.write_all(&meta.type_id.to_le_bytes())?;
         let varint_bytes = varint::to_le_bytes(meta.length);
@@ -27,20 +29,18 @@ impl RawSerialiser for Serialiser {
     }
 }
 
+impl From<SerOptions> for Serialiser {
+    fn from(options: SerOptions) -> Self {
+        Serialiser { options }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Deserialiser {
     options: DesOptions,
 }
 
-impl From<DesOptions> for Deserialiser {
-    fn from(options: DesOptions) -> Self {
-        Deserialiser { options }
-    }
-}
-
 impl RawDeserialiser for Deserialiser {
-    const VERSION: usize = VERSION;
-
     fn read_meta(&self, mut rdr: impl Read) -> Result<RecordMeta, IoError<ParserError>> {
         let mut buf = [0; 13];
         rdr.read_exact(&mut buf[..5])?;
@@ -57,6 +57,12 @@ impl RawDeserialiser for Deserialiser {
             source_id,
             type_id,
         })
+    }
+}
+
+impl From<DesOptions> for Deserialiser {
+    fn from(options: DesOptions) -> Self {
+        Deserialiser { options }
     }
 }
 
@@ -83,7 +89,8 @@ pub(crate) mod test {
         let ser = Serialiser::default();
         let mut buf = [0u8; 5];
 
-        ser.write_meta(REF_RECORD_META, buf.as_mut_slice()).expect("ser fail");
+        ser.write_meta(REF_RECORD_META, buf.as_mut_slice())
+            .expect("ser fail");
         assert_eq!(&buf, REF_RECORD_META_BYTES);
 
         let mut rdr = Cursor::new(buf);
