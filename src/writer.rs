@@ -1,7 +1,7 @@
 use std::{io::Write, marker::PhantomData};
 
 use crate::{
-    CURRENT_VERSION, Header, RecordMeta,
+    CURRENT_VERSION, Header, RecordId, RecordMeta,
     codec::{self, AnySerialiser, RawSerialiser},
     error::{IoError, ParserError},
     io::RecordSink,
@@ -40,7 +40,11 @@ impl MsrfWriterBuilder {
         Ok(MsrfWriter::new(wtr, ser))
     }
 
-    pub fn build_with<W: Write, S: RawSerialiser>(self, wtr: W, ser: S) -> MsrfWriter<S, W, HeaderUninit> {
+    pub fn build_with<W: Write, S: RawSerialiser>(
+        self,
+        wtr: W,
+        ser: S,
+    ) -> MsrfWriter<S, W, HeaderUninit> {
         MsrfWriter::new(wtr, ser)
     }
 }
@@ -74,9 +78,7 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderUninit> {
         }
     }
 
-    pub fn initialise(
-        mut self,
-    ) -> Result<MsrfWriter<S, W, HeaderInit>, IoError<ParserError>> {
+    pub fn initialise(mut self) -> Result<MsrfWriter<S, W, HeaderInit>, IoError<ParserError>> {
         let header = Header::new(CURRENT_VERSION);
         codec::write_header(&mut self.wtr, header)?;
         Ok(MsrfWriter {
@@ -95,6 +97,8 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderInit> {
     ) -> Result<RecordSink<'a, W>, IoError<ParserError>> {
         if self.is_finished {
             return Err(IoError::Parser(ParserError::IsEos));
+        } else if meta.is_eos() {
+            self.is_finished = true;
         }
 
         // Guard Byte is written later (specifically when RecordSink is dropped)
@@ -102,12 +106,27 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderInit> {
         Ok(RecordSink::new(self.wtr.by_ref(), meta.length))
     }
 
+    pub fn write_record_from<'a>(
+        &'a mut self,
+        id: RecordId,
+        buf: &[u8],
+    ) -> Result<(), IoError<ParserError>> {
+        if self.is_finished {
+            return Err(IoError::Parser(ParserError::IsEos));
+        }
+
+        let meta = RecordMeta::new(buf.len() as u64 + 1, id.source_id, id.type_id);
+        self.ser.write_meta(meta, &mut self.wtr)?;
+        self.wtr.write_all(buf)?;
+        self.wtr.write_all(&[0])?;
+        Ok(())
+    }
+
     pub fn finish(&mut self) -> Result<(), IoError<ParserError>> {
         if self.is_finished {
             return Err(IoError::Parser(ParserError::IsEos));
         }
 
-        self.is_finished = true;
         self.write_record(RecordMeta::new_eos())?;
         Ok(())
     }

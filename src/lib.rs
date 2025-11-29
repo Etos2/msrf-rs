@@ -34,7 +34,7 @@ impl Default for Header {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RecordMeta {
     pub(crate) length: u64,
     pub(crate) source_id: u16,
@@ -51,7 +51,11 @@ impl RecordMeta {
     }
 
     pub fn new_eos() -> Self {
-        Self::default()
+        Self {
+            length: 0,
+            source_id: RECORD_EOS,
+            type_id: 0,
+        }
     }
 
     pub const fn len(&self) -> u64 {

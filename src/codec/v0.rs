@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 
-use crate::RecordMeta;
+use crate::{RECORD_EOS, RecordMeta};
 use crate::codec::{DesOptions, RawDeserialiser, RawSerialiser, SerOptions, varint};
 use crate::error::{IoError, ParserError};
 
@@ -20,10 +20,13 @@ impl RawSerialiser for Serialiser {
         mut wtr: impl Write,
     ) -> Result<(), IoError<ParserError>> {
         wtr.write_all(&meta.source_id.to_le_bytes())?;
-        wtr.write_all(&meta.type_id.to_le_bytes())?;
-        let varint_bytes = varint::to_le_bytes(meta.length);
-        let varint_len = varint::len(varint_bytes[0]);
-        wtr.write_all(&varint_bytes[..varint_len])?;
+
+        if !meta.is_eos() {
+            wtr.write_all(&meta.type_id.to_le_bytes())?;
+            let varint_bytes = varint::to_le_bytes(meta.length);
+            let varint_len = varint::len(varint_bytes[0]);
+            wtr.write_all(&varint_bytes[..varint_len])?;
+        }
 
         Ok(())
     }
@@ -43,8 +46,15 @@ pub struct Deserialiser {
 impl RawDeserialiser for Deserialiser {
     fn read_meta(&self, mut rdr: impl Read) -> Result<RecordMeta, IoError<ParserError>> {
         let mut buf = [0; 13];
-        rdr.read_exact(&mut buf[..5])?;
+        rdr.read_exact(&mut buf[..2])?;
         let source_id = u16::from_le_bytes(buf[..2].try_into().unwrap()); // Safety: buf[..2].len() == 2
+
+        if source_id == RECORD_EOS {
+            return Ok(RecordMeta::new_eos());
+        }
+
+        rdr.read_exact(&mut buf[2..5])?;
+
         let type_id = u16::from_le_bytes(buf[2..4].try_into().unwrap()); // Safety: buf[2..4].len() == 2
         let length_len = varint::len(buf[4]);
         if length_len > 1 {
@@ -97,5 +107,21 @@ pub(crate) mod test {
         let meta = des.read_meta(&mut rdr).expect("des fail");
         assert_eq!(meta, REF_RECORD_META);
         assert_eq!(rdr.position(), 5);
+    }
+
+    #[test]
+    fn serdes_record_eos() {
+        let des = Deserialiser::default();
+        let ser = Serialiser::default();
+        let mut buf = [0u8; 2];
+
+        ser.write_meta(RecordMeta::new_eos(), buf.as_mut_slice())
+            .expect("ser fail");
+        assert_eq!(&buf, &RECORD_EOS.to_le_bytes());
+
+        let mut rdr = Cursor::new(buf);
+        let meta = des.read_meta(&mut rdr).expect("des fail");
+        assert_eq!(meta, RecordMeta::new_eos());
+        assert_eq!(rdr.position(), 2);
     }
 }
