@@ -10,6 +10,7 @@ pub mod writer;
 
 pub const MSRF_EXT_NAME: &str = "msrf-ext";
 pub const MSRF_EXT_MAP_ID: u16 = 0x00;
+pub const MSRF_EXT_VERSION: u16 = 0x00;
 
 pub const ID_SOURCE_ADD: u16 = 0x00;
 pub const ID_SOURCE_REMOVE: u16 = 0x01;
@@ -21,11 +22,18 @@ pub trait AssignedId {
     }
 }
 
+// TODO: &str
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceAdd {
     pub(crate) id: u16,
     pub(crate) version: u16,
     pub(crate) name: String,
+}
+
+impl SourceAdd {
+    pub fn new(id: u16, version: u16, name: impl Into<String>) -> SourceAdd {
+        SourceAdd { id, version, name: name.into() }
+    }
 }
 
 impl AssignedId for SourceAdd {
@@ -35,6 +43,12 @@ impl AssignedId for SourceAdd {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceRemove {
     pub(crate) id: u16,
+}
+
+impl SourceRemove {
+    pub fn new(id: u16) -> SourceRemove {
+        SourceRemove { id }
+    }
 }
 
 impl AssignedId for SourceRemove {
