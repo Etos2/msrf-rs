@@ -87,7 +87,7 @@ impl RecordMeta {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RecordId {
     pub(crate) source_id: u16,
     pub(crate) type_id: u16,
@@ -99,7 +99,7 @@ impl RecordId {
     }
 
     pub fn new_eos() -> Self {
-        Self::default()
+        Self { source_id: RECORD_EOS, type_id: 0 }
     }
 
     pub const fn is_eos(&self) -> bool {
