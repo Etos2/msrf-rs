@@ -90,6 +90,7 @@ impl From<SourceRemove> for Record {
     }
 }
 
+// TODO: Store version
 #[derive(Debug)]
 pub struct SourceRegistrar {
     map: BTreeMap<u16, String>,

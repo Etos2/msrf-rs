@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use msrf::error::IoError;
+use msrf::{error::IoError, io::SizedRecord};
 
 use crate::{
     SourceAdd, SourceRemove,
@@ -17,7 +17,7 @@ pub struct Serialiser;
 impl RawSerialiser for Serialiser {
     fn write_source_add<W: std::io::Write>(
         &self,
-        rec: SourceAdd,
+        rec: &SourceAdd,
         mut wtr: W,
     ) -> Result<(), IoError<DesError>> {
         wtr.write_all(&rec.id.to_le_bytes())?;
@@ -29,7 +29,7 @@ impl RawSerialiser for Serialiser {
 
     fn write_source_remove<W: std::io::Write>(
         &self,
-        rec: SourceRemove,
+        rec: &SourceRemove,
         mut wtr: W,
     ) -> Result<(), IoError<DesError>> {
         wtr.write_all(&rec.id.to_le_bytes())?;
@@ -65,6 +65,20 @@ impl RawDeserialiser for Deserialiser {
     }
 }
 
+impl SizedRecord<Serialiser> for SourceAdd {
+    fn encoded_len(&self, _ser: &Serialiser) -> usize {
+        // ID: u16 + Version: u16 + Name: Variable
+        size_of::<u16>() * 2 + self.name.len()
+    }
+}
+
+impl SizedRecord<Serialiser> for SourceRemove{
+    fn encoded_len(&self, _ser: &Serialiser) -> usize {
+        // ID: u16
+        size_of::<u16>()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -87,7 +101,7 @@ mod test {
         let des = Deserialiser;
 
         let mut buf = [0u8; 14];
-        ser.write_source_add(ref_source_add.clone(), buf.as_mut_slice())
+        ser.write_source_add(&ref_source_add.clone(), buf.as_mut_slice())
             .expect("failed ser");
         assert_eq!(&buf, REF_SOURCE_ADD_BYTES);
 
@@ -106,7 +120,7 @@ mod test {
         let des = Deserialiser;
 
         let mut buf = [0u8; 2];
-        ser.write_source_remove(REF_SOURCE_REMOVE, buf.as_mut_slice())
+        ser.write_source_remove(&REF_SOURCE_REMOVE, buf.as_mut_slice())
             .expect("failed ser");
         assert_eq!(&buf, REF_SOURCE_REMOVE_BYTES);
 

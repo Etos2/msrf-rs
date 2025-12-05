@@ -1,17 +1,21 @@
 use std::io::{Read, Write};
 
-use msrf::error::IoError;
+use msrf::{error::IoError, io::SizedRecord};
 
-use crate::{MSRF_EXT_VERSION, SourceAdd, SourceRemove, codec::v0::{Deserialiser, Serialiser}, error::DesError};
+use crate::{
+    MSRF_EXT_VERSION, SourceAdd, SourceRemove,
+    codec::v0::{Deserialiser, Serialiser},
+    error::DesError,
+};
 
 mod v0;
 
 // TODO: Accept a shared configuration type (Options)
 pub trait RawSerialiser {
-    fn write_source_add<W: Write>(&self, rec: SourceAdd, wtr: W) -> Result<(), IoError<DesError>>;
+    fn write_source_add<W: Write>(&self, rec: &SourceAdd, wtr: W) -> Result<(), IoError<DesError>>;
     fn write_source_remove<W: Write>(
         &self,
-        rec: SourceRemove,
+        rec: &SourceRemove,
         wtr: W,
     ) -> Result<(), IoError<DesError>>;
 }
@@ -49,7 +53,7 @@ pub enum AnySerialiser {
 }
 
 impl RawSerialiser for AnySerialiser {
-    fn write_source_add<W: Write>(&self, rec: SourceAdd, wtr: W) -> Result<(), IoError<DesError>> {
+    fn write_source_add<W: Write>(&self, rec: &SourceAdd, wtr: W) -> Result<(), IoError<DesError>> {
         match self {
             AnySerialiser::V0(ser) => ser.write_source_add(rec, wtr),
         }
@@ -57,7 +61,7 @@ impl RawSerialiser for AnySerialiser {
 
     fn write_source_remove<W: Write>(
         &self,
-        rec: SourceRemove,
+        rec: &SourceRemove,
         wtr: W,
     ) -> Result<(), IoError<DesError>> {
         match self {
@@ -72,6 +76,22 @@ impl AnySerialiser {
         match version.get() {
             0 => AnySerialiser::V0(Serialiser),
             _ => unreachable!(),
+        }
+    }
+}
+
+impl SizedRecord<AnySerialiser> for SourceAdd {
+    fn encoded_len(&self, ser: &AnySerialiser) -> usize {
+        match ser {
+            AnySerialiser::V0(ser) => self.encoded_len(ser),
+        }
+    }
+}
+
+impl SizedRecord<AnySerialiser> for SourceRemove {
+    fn encoded_len(&self, ser: &AnySerialiser) -> usize {
+        match ser {
+            AnySerialiser::V0(ser) => self.encoded_len(ser),
         }
     }
 }

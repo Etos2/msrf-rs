@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use msrf::error::IoError;
+use msrf::{error::IoError, io::SizedRecord};
 
 use crate::{
     Record, SourceAdd, SourceRemove,
@@ -39,6 +39,12 @@ pub struct MsrfExtWriter<S> {
 }
 
 impl<S: RawSerialiser> MsrfExtWriter<S> {
+    pub fn record_len<T: SizedRecord<S>>(&self, record: &T) -> usize {
+        record.encoded_len(&self.ser)
+    }
+}
+
+impl<S: RawSerialiser> MsrfExtWriter<S> {
     fn new(ser: S) -> MsrfExtWriter<S> {
         MsrfExtWriter { ser }
     }
@@ -46,7 +52,7 @@ impl<S: RawSerialiser> MsrfExtWriter<S> {
     pub fn write_record<W: Write>(
         &self,
         wtr: &mut W,
-        record: Record,
+        record: &Record,
     ) -> Result<(), IoError<DesError>> {
         match record {
             Record::SourceAdd(source_add) => self.ser.write_source_add(source_add, wtr),
@@ -57,7 +63,7 @@ impl<S: RawSerialiser> MsrfExtWriter<S> {
     pub fn write_source_add<W: Write>(
         &self,
         wtr: &mut W,
-        val: SourceAdd,
+        val: &SourceAdd,
     ) -> Result<(), IoError<DesError>> {
         self.ser.write_source_add(val, wtr)
     }
@@ -65,8 +71,47 @@ impl<S: RawSerialiser> MsrfExtWriter<S> {
     pub fn write_source_remove<W: Write>(
         &self,
         wtr: &mut W,
-        val: SourceRemove,
+        val: &SourceRemove,
     ) -> Result<(), IoError<DesError>> {
         self.ser.write_source_remove(val, wtr)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::io::Cursor;
+
+    use constcat::concat_bytes;
+
+    use super::*;
+
+    #[test]
+    fn write_source_add() {
+        const SOURCE_ADD_BYTES: &[u8; 12] = concat_bytes!(
+            &u16::to_le_bytes(1),
+            &u16::to_le_bytes(2),
+            b"mrsf-ext".as_slice()
+        );
+
+        let dest = [0; 12];
+        let mut cursor = Cursor::new(dest);
+        let ser = MsrfExtWriterBuilder::default().build();
+        let record = SourceAdd::new(1, 2, "mrsf-ext");
+        ser.write_source_add(&mut cursor, &record).unwrap();
+        assert_eq!(ser.record_len(&record), SOURCE_ADD_BYTES.len());
+        assert_eq!(&cursor.into_inner(), SOURCE_ADD_BYTES);
+    }
+
+    #[test]
+    fn write_source_remove() {
+        const SOURCE_REMOVE_BYTES: &[u8; 2] = &u16::to_le_bytes(1);
+
+        let dest = [0; 2];
+        let mut cursor = Cursor::new(dest);
+        let ser = MsrfExtWriterBuilder::default().build();
+        let record = SourceRemove::new(1);
+        ser.write_source_remove(&mut cursor, &record).unwrap();
+        assert_eq!(ser.record_len(&record), SOURCE_REMOVE_BYTES.len());
+        assert_eq!(&cursor.into_inner(), SOURCE_REMOVE_BYTES);
     }
 }

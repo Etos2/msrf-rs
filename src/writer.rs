@@ -99,7 +99,7 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderInit> {
             return Err(IoError::Parser(ParserError::IsEos));
         } else if meta.is_eos() {
             // TODO: Better handling of EoS RecordMeta
-            return Err(IoError::Parser(ParserError::UnexpectedEos))
+            return Err(IoError::Parser(ParserError::UnexpectedEos));
         }
 
         // Guard Byte is written later (specifically when RecordSink is dropped)
@@ -107,8 +107,8 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderInit> {
         Ok(RecordSink::new(self.wtr.by_ref(), meta.length))
     }
 
-    pub fn write_record_from<'a>(
-        &'a mut self,
+    pub fn write_record_from(
+        &mut self,
         id: RecordId,
         buf: &[u8],
     ) -> Result<(), IoError<ParserError>> {
@@ -116,7 +116,7 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderInit> {
             return Err(IoError::Parser(ParserError::IsEos));
         } else if id.is_eos() {
             // TODO: Better handling of EoS RecordMeta
-            return Err(IoError::Parser(ParserError::UnexpectedEos))
+            return Err(IoError::Parser(ParserError::UnexpectedEos));
         }
 
         let meta = RecordMeta::new(buf.len() as u64 + 1, id.source_id, id.type_id);

@@ -84,3 +84,7 @@ impl<'a, W: Write> Drop for RecordSink<'a, W> {
         let _res = self.wtr.flush();
     }
 }
+
+pub trait SizedRecord<S> {
+    fn encoded_len(&self, ser: &S) -> usize;
+}
