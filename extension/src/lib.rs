@@ -90,10 +90,29 @@ impl From<SourceRemove> for Record {
     }
 }
 
-// TODO: Store version
+#[derive(Debug, PartialEq)]
+pub struct Source {
+    name: String,
+    version: u16,
+}
+
+impl Source {
+    fn new(name: impl Into<String>, version: u16) -> Source {
+        Source { name: name.into(), version }
+    }
+
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub fn version(&self) -> u16 {
+        self.version
+    }
+}
+
 #[derive(Debug)]
 pub struct SourceRegistrar {
-    map: BTreeMap<u16, String>,
+    map: BTreeMap<u16, Source>,
     next_id: NonZeroU16,
 }
 
@@ -102,22 +121,22 @@ impl SourceRegistrar {
         Self::default()
     }
 
-    pub fn register(&mut self, name: impl Into<String> + AsRef<str>) -> Result<u16, u16> {
+    pub fn register(&mut self, name: impl Into<String> + AsRef<str>, version: u16) -> Result<u16, u16> {
         if let Some(id) = self.get_by_source(name.as_ref()) {
             return Err(id);
         }
 
         let id = self.next_id.get();
-        self.map.insert(id, name.into());
+        self.map.insert(id, Source::new(name.into(), version));
         self.next_id = self.next_free_id();
         Ok(id)
     }
 
-    pub fn register_root(&mut self, name: impl Into<String>) -> Option<&str> {
+    pub fn register_root(&mut self, name: impl Into<String>, version: u16) -> Option<&str> {
         match self.map.entry(0) {
-            Entry::Occupied(o) => Some(o.into_mut()),
+            Entry::Occupied(o) => Some(o.into_mut().name()),
             Entry::Vacant(v) => {
-                v.insert(name.into());
+                v.insert(Source::new(name, version));
                 None
             }
         }
@@ -127,6 +146,7 @@ impl SourceRegistrar {
         &mut self,
         id: NonZeroU16,
         name: impl Into<String>,
+        version: u16,
     ) -> Option<&str> {
         // TODO: HACK! Borrow checker stops us from placing this in the `Vacant` branch below (need `self.map.keys` when already mutably borrowed `self.map`).
         if self.next_id == id {
@@ -136,15 +156,15 @@ impl SourceRegistrar {
         }
 
         match self.map.entry(id.get()) {
-            Entry::Occupied(o) => Some(o.into_mut()),
+            Entry::Occupied(o) => Some(o.into_mut().name()),
             Entry::Vacant(v) => {
-                v.insert(name.into());
+                v.insert(Source::new(name, version));
                 None
             }
         }
     }
 
-    pub fn remove_by_id(&mut self, id: u16) -> Option<String> {
+    pub fn remove_by_id(&mut self, id: u16) -> Option<Source> {
         self.map.remove(&id).inspect(|_| {
             if let Some(new_id) = NonZeroU16::new(id)
                 && self.next_id > new_id
@@ -160,20 +180,20 @@ impl SourceRegistrar {
         })
     }
 
-    pub fn get_by_id(&self, id: u16) -> Option<&str> {
-        self.map.get(&id).map(String::as_str)
+    pub fn get_by_id(&self, id: u16) -> Option<&Source> {
+        self.map.get(&id)
     }
 
     pub fn get_by_source(&self, source: impl AsRef<str>) -> Option<u16> {
         let name_rhs = source.as_ref();
         self.map
             .iter()
-            .find(|(_, name_lhs)| *name_lhs == name_rhs)
+            .find(|(_, src)| src.name() == name_rhs)
             .map(|(id, _)| *id)
     }
 
-    pub fn sources(&self) -> impl Iterator<Item = (u16, &str)> {
-        self.map.iter().map(|(id, name)| (*id, name.as_str()))
+    pub fn sources(&self) -> impl Iterator<Item = (u16, &str, u16)> {
+        self.map.iter().map(|(id, src)| (*id, src.name(), src.version()))
     }
 
     fn next_free_id(&self) -> NonZeroU16 {
@@ -221,43 +241,43 @@ mod test {
         let mut registrar = SourceRegistrar::new();
 
         // Register SOURCE_A & SOURCE_B
-        assert_eq!(registrar.register(SOURCE_A), Ok(1));
-        assert_eq!(registrar.register(SOURCE_B), Ok(2));
-        assert_eq!(registrar.get_by_id(1), Some(SOURCE_A));
-        assert_eq!(registrar.get_by_id(2), Some(SOURCE_B));
+        assert_eq!(registrar.register(SOURCE_A, 123), Ok(1));
+        assert_eq!(registrar.register(SOURCE_B, 324), Ok(2));
+        assert_eq!(registrar.get_by_id(1), Some(&Source::new(SOURCE_A, 123)));
+        assert_eq!(registrar.get_by_id(2), Some(&Source::new(SOURCE_B, 324)));
 
         // Register SOURCE_C after removing SOURCE_A
-        assert_eq!(registrar.remove_by_id(1), Some(SOURCE_A.to_string()));
-        assert_eq!(registrar.register(SOURCE_C), Ok(1));
-        assert_eq!(registrar.get_by_id(1), Some(SOURCE_C));
-        assert_eq!(registrar.get_by_id(2), Some(SOURCE_B));
+        assert_eq!(registrar.remove_by_id(1), Some(Source::new(SOURCE_A, 123)));
+        assert_eq!(registrar.register(SOURCE_C, 0), Ok(1));
+        assert_eq!(registrar.get_by_id(1), Some(&Source::new(SOURCE_C, 0)));
+        assert_eq!(registrar.get_by_id(2), Some(&Source::new(SOURCE_B, 324)));
     }
 
     #[test]
     fn source_registrar_iter() {
         let mut registrar = SourceRegistrar::new();
 
-        assert_eq!(registrar.register_root(ROOT_A), None);
-        assert_eq!(registrar.register(SOURCE_A), Ok(1));
-        assert_eq!(registrar.register(SOURCE_B), Ok(2));
-        assert_eq!(registrar.register(SOURCE_C), Ok(3));
+        assert_eq!(registrar.register_root(ROOT_A, 567), None);
+        assert_eq!(registrar.register(SOURCE_A, 123), Ok(1));
+        assert_eq!(registrar.register(SOURCE_B, 324), Ok(2));
+        assert_eq!(registrar.register(SOURCE_C, 0), Ok(3));
 
         {
             let mut iter = registrar.sources();
-            assert_eq!(iter.next(), Some((0, ROOT_A)));
-            assert_eq!(iter.next(), Some((1, SOURCE_A)));
-            assert_eq!(iter.next(), Some((2, SOURCE_B)));
-            assert_eq!(iter.next(), Some((3, SOURCE_C)));
+            assert_eq!(iter.next(), Some((0, ROOT_A, 567)));
+            assert_eq!(iter.next(), Some((1, SOURCE_A, 123)));
+            assert_eq!(iter.next(), Some((2, SOURCE_B, 324)));
+            assert_eq!(iter.next(), Some((3, SOURCE_C, 0)));
             assert_eq!(iter.next(), None);
         }
 
-        assert_eq!(registrar.remove_by_id(1), Some(SOURCE_A.to_string()));
+        assert_eq!(registrar.remove_by_id(1), Some(Source::new(SOURCE_A, 123)));
         assert_eq!(registrar.remove_by_source(SOURCE_B), Some(2));
 
         {
             let mut iter = registrar.sources();
-            assert_eq!(iter.next(), Some((0, ROOT_A)));
-            assert_eq!(iter.next(), Some((3, SOURCE_C)));
+            assert_eq!(iter.next(), Some((0, ROOT_A, 567)));
+            assert_eq!(iter.next(), Some((3, SOURCE_C, 0)));
             assert_eq!(iter.next(), None);
         }
     }
@@ -267,19 +287,19 @@ mod test {
         let mut registrar = SourceRegistrar::new();
 
         // Register ROOT_A
-        assert_eq!(registrar.register_root(ROOT_A), None);
-        assert_eq!(registrar.register_root(ROOT_B), Some(ROOT_A));
-        assert_eq!(registrar.get_by_id(0), Some(ROOT_A));
+        assert_eq!(registrar.register_root(ROOT_A, 567), None);
+        assert_eq!(registrar.register_root(ROOT_B, 890), Some(ROOT_A));
+        assert_eq!(registrar.get_by_id(0), Some(&Source::new(ROOT_A, 567)));
 
         // Register ROOT_B by removing ROOT_A by ID
-        assert_eq!(registrar.remove_by_id(0), Some(ROOT_A.to_string()));
-        assert_eq!(registrar.register_root(ROOT_B), None);
-        assert_eq!(registrar.get_by_id(0), Some(ROOT_B));
+        assert_eq!(registrar.remove_by_id(0), Some(Source::new(ROOT_A, 567)));
+        assert_eq!(registrar.register_root(ROOT_B, 890), None);
+        assert_eq!(registrar.get_by_id(0), Some(&Source::new(ROOT_B, 890)));
 
         // Register ROOT_A by removing ROOT_B by Source
         assert_eq!(registrar.remove_by_source(ROOT_B), Some(0));
-        assert_eq!(registrar.register_root(ROOT_A), None);
-        assert_eq!(registrar.get_by_id(0), Some(ROOT_A));
+        assert_eq!(registrar.register_root(ROOT_A, 567), None);
+        assert_eq!(registrar.get_by_id(0), Some(&Source::new(ROOT_A, 567)));
     }
 
     #[test]
@@ -288,9 +308,9 @@ mod test {
 
         // Check ordinary sequential ID
         assert_eq!(registrar.next_free_id().get(), 1);
-        assert_eq!(registrar.register(ROOT_A), Ok(1));
+        assert_eq!(registrar.register(ROOT_A, 567), Ok(1));
         assert_eq!(registrar.next_free_id().get(), 2);
-        assert_eq!(registrar.register(ROOT_B), Ok(2));
+        assert_eq!(registrar.register(ROOT_B, 890), Ok(2));
         assert_eq!(registrar.next_free_id().get(), 3);
 
         // Check invalid self.next_id handling (this shouldn't occur, but is still useful)
@@ -302,7 +322,7 @@ mod test {
         // Check removal logic
         assert_eq!(registrar.remove_by_source(ROOT_B), Some(2));
         assert_eq!(registrar.next_free_id().get(), 2);
-        assert_eq!(registrar.remove_by_id(1), Some(ROOT_A.to_string()));
+        assert_eq!(registrar.remove_by_id(1), Some(Source::new(ROOT_A, 576)));
         assert_eq!(registrar.next_free_id().get(), 1);
     }
 }
