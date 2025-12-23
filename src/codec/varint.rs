@@ -1,5 +1,6 @@
 const TAG_WITH_DATA_LEN: usize = 7;
 
+// TODO: Add wrapper struct (struct Varint<u64>([u8; 9]))
 pub fn len(tag: u8) -> usize {
     tag.trailing_zeros() as usize + 1
 }

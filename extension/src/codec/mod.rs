@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 
-use msrf::{error::IoError, io::SizedRecord};
+use msrf::{IntoMetadata, error::IoError, io::SizedRecord};
 
 use crate::{
     MSRF_EXT_VERSION, SourceAdd, SourceRemove,
@@ -95,6 +95,9 @@ impl SizedRecord<AnySerialiser> for SourceRemove {
         }
     }
 }
+
+impl IntoMetadata<AnySerialiser> for SourceAdd {}
+impl IntoMetadata<AnySerialiser> for SourceRemove {}
 
 #[derive(Debug)]
 pub enum AnyDeserialiser {

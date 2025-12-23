@@ -1,12 +1,11 @@
 use std::io::Read;
 
-use msrf::{error::IoError, io::SizedRecord};
-
 use crate::{
     SourceAdd, SourceRemove,
     codec::{RawDeserialiser, RawSerialiser},
     error::DesError,
 };
+use msrf::{IntoMetadata, error::IoError, io::SizedRecord};
 
 const SOURCE_ADD_LEN: usize = 4;
 const SOURCE_REMOVE_LEN: usize = 2;
@@ -72,12 +71,15 @@ impl SizedRecord<Serialiser> for SourceAdd {
     }
 }
 
-impl SizedRecord<Serialiser> for SourceRemove{
+impl SizedRecord<Serialiser> for SourceRemove {
     fn encoded_len(&self, _ser: &Serialiser) -> usize {
         // ID: u16
         size_of::<u16>()
     }
 }
+
+impl IntoMetadata<Serialiser> for SourceAdd {}
+impl IntoMetadata<Serialiser> for SourceRemove {}
 
 #[cfg(test)]
 mod test {

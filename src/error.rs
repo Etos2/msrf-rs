@@ -3,13 +3,11 @@ use std::{error::Error, fmt::Display};
 // TODO: Re-evaluate variant nessicity (e.g. length?)
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum ParserError {
-    Need(usize),      // TODO: Remove
+    Need(usize), // TODO: Remove
     Unsupported(u16),
     Guard(u8),
     MagicBytes([u8; 4]),
     Length(u64),
-    ContainerOverflow(u64), // TODO: Combine ContainerOverflow & ContainerUnderflow (use i64)
-    ContainerUnderflow(u64), // TODO: Combine ContainerOverflow & ContainerUnderflow (use i64)
     UnexpectedEos,
     IsEos,
 }
@@ -26,15 +24,6 @@ impl Display for ParserError {
             Self::Guard(g) => write!(f, "expected guard ({g})"),
             Self::MagicBytes(b) => write!(f, "invalid magic bytes ({b:?})"),
             Self::Length(l) => write!(f, "invalid length ({l})"),
-            Self::ContainerOverflow(n) => {
-                write!(
-                    f,
-                    "container overflow (record is {n} bytes longer than it's container)"
-                )
-            },
-            Self::ContainerUnderflow(n) => {
-                write!(f, "container underflow (expected {n} more bytes)")
-            },
             Self::UnexpectedEos => write!(f, "unexpected eos"),
             Self::IsEos => write!(f, "already recieved eos"),
         }

@@ -1,5 +1,5 @@
 pub mod v0;
-mod varint;
+pub(crate) mod varint;
 
 use std::io::{Read, Write};
 
@@ -28,6 +28,7 @@ pub trait RawDeserialiser {
 
 pub trait RawSerialiser {
     fn write_meta(&self, meta: RecordMeta, wtr: impl Write) -> Result<(), IoError<ParserError>>;
+    fn encoded_meta_len(&self, user_len: usize) -> usize;
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -105,6 +106,12 @@ impl RawSerialiser for AnySerialiser {
     fn write_meta(&self, meta: RecordMeta, wtr: impl Write) -> Result<(), IoError<ParserError>> {
         match self {
             AnySerialiser::V0(ser) => ser.write_meta(meta, wtr),
+        }
+    }
+    
+    fn encoded_meta_len(&self, user_len: usize) -> usize {
+        match self {
+            AnySerialiser::V0(ser) => ser.encoded_meta_len(user_len),
         }
     }
 }

@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use msrf::{error::IoError, io::SizedRecord};
+use msrf::{IntoMetadata, RecordMeta, error::IoError, io::SizedRecord};
 
 use crate::{
     Record, SourceAdd, SourceRemove,
@@ -74,6 +74,20 @@ impl<S: RawSerialiser> MsrfExtWriter<S> {
         val: &SourceRemove,
     ) -> Result<(), IoError<DesError>> {
         self.ser.write_source_remove(val, wtr)
+    }
+}
+
+impl<S: RawSerialiser> MsrfExtWriter<S>
+where
+    SourceAdd: IntoMetadata<S>,
+    SourceRemove: IntoMetadata<S>,
+{
+    // TODO: Requires .clone() to use in practice, remove
+    pub fn generate_meta(&self, source_id: u16, record: impl Into<Record>) -> RecordMeta {
+        match record.into() {
+            Record::SourceAdd(source_add) => source_add.meta(&self.ser, source_id),
+            Record::SourceRemove(source_remove) => source_remove.meta(&self.ser, source_id),
+        }
     }
 }
 

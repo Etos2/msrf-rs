@@ -1,3 +1,11 @@
+use std::{fmt::Debug, io::Write};
+
+use crate::{
+    codec::RawSerialiser,
+    error::{IoError, ParserError},
+    io::SizedRecord,
+};
+
 #[cfg(any(feature = "reader", feature = "writer"))]
 pub mod codec;
 pub mod error;
@@ -9,7 +17,84 @@ pub mod writer;
 
 pub const RECORD_EOS: u16 = u16::MAX;
 pub const CURRENT_VERSION: u16 = 0;
-pub(crate) const TYPE_CONTAINER_MASK: u16 = 0b1000_0000_0000_0000;
+pub(crate) const TYPE_CONTAINER_MASK: u16 = 0x8000;
+
+pub trait ConstAssignedId {
+    const TYPE_ID: u16;
+}
+
+pub trait AssignedId {
+    fn typ_id(&self) -> u16;
+}
+
+impl<T> AssignedId for T
+where
+    T: ConstAssignedId,
+{
+    fn typ_id(&self) -> u16 {
+        T::TYPE_ID
+    }
+}
+
+pub trait IntoMetadata<S>: AssignedId + SizedRecord<S> {
+    fn meta(&self, ser: &S, source_id: u16) -> RecordMeta {
+        RecordMeta::new(source_id, self.typ_id(), self.encoded_len(ser) as u64)
+    }
+}
+
+pub trait IntoData<S, W>: AssignedId + SizedRecord<S> + DynClone<S, W> + Debug
+where
+    W: Write,
+    S: RawSerialiser,
+{
+    fn encode_into(&self, wtr: &mut W, ser: &S, source_id: u16) -> Result<(), IoError<ParserError>>;
+}
+
+pub trait DynClone<S: RawSerialiser, W: Write> {
+    fn dyn_clone<'s>(&self) -> Box<dyn IntoData<S, W> + 's>
+    where
+        Self: 's;
+}
+
+impl<S: RawSerialiser, W: Write, T: Clone + IntoData<S, W>> DynClone<S, W> for T {
+    fn dyn_clone<'s>(&self) -> Box<dyn IntoData<S, W> + 's>
+    where
+        Self: 's,
+    {
+        Box::new(self.clone())
+    }
+}
+
+impl<'a, S: RawSerialiser + 'a, W: Write + 'a> IntoData<S, W> for Box<dyn IntoData<S, W> + 'a> {
+    fn encode_into(&self, wtr: &mut W, ser: &S, source_id: u16) -> Result<(), IoError<ParserError>> {
+        (**self).encode_into(wtr, &ser, source_id)
+    }
+}
+
+impl<S: RawSerialiser, W: Write> AssignedId for Box<dyn IntoData<S, W> + '_> {
+    fn typ_id(&self) -> u16 {
+        (**self).typ_id()
+    }
+}
+
+impl<S: RawSerialiser, W: Write> SizedRecord<S> for Box<dyn IntoData<S, W> + '_> {
+    fn encoded_len(&self, ser: &S) -> usize {
+        (**self).encoded_len(ser)
+    }
+}
+
+impl<'a, S: RawSerialiser + 'a, W: Write + 'a> Clone for Box<dyn IntoData<S, W> + 'a> {
+    fn clone(&self) -> Self {
+        (**self).dyn_clone()
+    }
+}
+
+impl<'a, S: RawSerialiser + 'a, W: Write + 'a> ToOwned for dyn IntoData<S, W> + 'a {
+    type Owned = Box<dyn IntoData<S, W> + 'a>;
+    fn to_owned(&self) -> Self::Owned {
+        self.dyn_clone()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Header {
@@ -36,23 +121,35 @@ impl Default for Header {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RecordMeta {
-    pub(crate) length: u64,
     pub(crate) source_id: u16,
     pub(crate) type_id: u16,
+    pub(crate) length: u64,
+    pub(crate) contained: Option<u16>,
 }
 
 impl RecordMeta {
-    pub const fn new(length: u64, source_id: u16, type_id: u16) -> Self {
+    pub const fn new(source_id: u16, type_id: u16, length: u64) -> Self {
         Self {
             length,
+            contained: None,
             source_id,
             type_id,
+        }
+    }
+    
+    pub const fn new_container(source_id: u16, type_id: u16, length: u64, contained: u16) -> Self {
+        Self {
+            source_id,
+            type_id,
+            length,
+            contained: Some(contained),
         }
     }
 
     pub fn new_eos() -> Self {
         Self {
             length: 0,
+            contained: None,
             source_id: RECORD_EOS,
             type_id: 0,
         }
@@ -75,15 +172,19 @@ impl RecordMeta {
     }
 
     pub const fn type_id(&self) -> u16 {
-        self.type_id & !TYPE_CONTAINER_MASK
+        self.type_id
     }
 
     pub const fn is_container(&self) -> bool {
-        self.type_id & TYPE_CONTAINER_MASK == TYPE_CONTAINER_MASK
+        self.contained.is_some()
     }
 
     pub const fn value_len(&self) -> u64 {
         self.length
+    }
+
+    pub const fn contained(&self) -> Option<u16> {
+        self.contained
     }
 }
 
@@ -99,7 +200,10 @@ impl RecordId {
     }
 
     pub fn new_eos() -> Self {
-        Self { source_id: RECORD_EOS, type_id: 0 }
+        Self {
+            source_id: RECORD_EOS,
+            type_id: 0,
+        }
     }
 
     pub const fn is_eos(&self) -> bool {
@@ -114,12 +218,8 @@ impl RecordId {
         self.type_id & !TYPE_CONTAINER_MASK
     }
 
-    pub const fn is_container(&self) -> bool {
-        self.type_id & TYPE_CONTAINER_MASK == TYPE_CONTAINER_MASK
-    }
-
-    pub const fn into_meta(self, length: u64) -> RecordMeta {
-        RecordMeta::new(length, self.source_id, self.type_id)
+    pub const fn into_meta(self, len: u64) -> RecordMeta {
+        RecordMeta::new(self.source_id, self.type_id, len)
     }
 }
 
@@ -145,11 +245,10 @@ mod test {
 
     #[test]
     fn record_interop() {
-        let record_meta = RecordMeta::new(LEN, SOURCE, TYPE);
+        let record_meta = RecordMeta::new(SOURCE, TYPE, LEN);
         let record_id = RecordId::from(record_meta);
 
         assert_eq!(record_meta, record_id.into_meta(LEN));
-        assert_pair_eq(record_meta.is_container(), record_id.is_container(), false);
         assert_pair_eq(record_meta.is_eos(), record_id.is_eos(), false);
         assert_pair_eq(record_meta.source_id(), record_id.source_id(), SOURCE);
         assert_pair_eq(record_meta.type_id(), record_id.type_id(), TYPE);
@@ -157,12 +256,11 @@ mod test {
 
     #[test]
     fn record_interop_container() {
-        const TYPE_WITH_CONTAINER: u16 = TYPE | TYPE_CONTAINER_MASK;
-        let record_meta = RecordMeta::new(LEN, SOURCE, TYPE_WITH_CONTAINER);
+        const COUNT: u16 = 5;
+        let record_meta = RecordMeta::new_container(SOURCE, TYPE, LEN, COUNT);
         let record_id = RecordId::from(record_meta);
 
-        assert_eq!(record_meta, record_id.into_meta(LEN));
-        assert_pair_eq(record_meta.is_container(), record_id.is_container(), true);
+        assert_ne!(record_meta, record_id.into_meta(LEN));
         assert_pair_eq(record_meta.is_eos(), record_id.is_eos(), false);
         assert_pair_eq(record_meta.source_id(), record_id.source_id(), SOURCE);
         assert_pair_eq(record_meta.type_id(), record_id.type_id(), TYPE);
@@ -170,11 +268,10 @@ mod test {
 
     #[test]
     fn record_interop_eos() {
-        let record_meta = RecordMeta::new(LEN, RECORD_EOS, TYPE);
+        let record_meta = RecordMeta::new(RECORD_EOS, TYPE, LEN);
         let record_id = RecordId::from(record_meta);
 
         assert_eq!(record_meta, record_id.into_meta(LEN));
-        assert_pair_eq(record_meta.is_container(), record_id.is_container(), false);
         assert_pair_eq(record_meta.is_eos(), record_id.is_eos(), true);
         assert_pair_eq(record_meta.source_id(), record_id.source_id(), RECORD_EOS);
         assert_pair_eq(record_meta.type_id(), record_id.type_id(), TYPE);

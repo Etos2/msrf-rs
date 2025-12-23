@@ -1,8 +1,8 @@
 use std::io::Read;
 
-use msrf::{error::IoError, io::RecordChunk};
+use msrf::{ConstAssignedId, error::IoError, io::RecordChunk};
 
-use crate::{AssignedId, Record, SourceAdd, SourceRemove, codec::RawDeserialiser, error::DesError};
+use crate::{Record, SourceAdd, SourceRemove, codec::RawDeserialiser, error::DesError};
 
 pub struct MsrfExtReader<D> {
     // TODO: Add configuration (Options)

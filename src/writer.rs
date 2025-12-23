@@ -1,7 +1,7 @@
-use std::{io::Write, marker::PhantomData};
+use std::{fmt::Debug, io::Write, marker::PhantomData};
 
 use crate::{
-    CURRENT_VERSION, Header, RecordId, RecordMeta,
+    CURRENT_VERSION, Header, IntoData, IntoMetadata, RecordId, RecordMeta,
     codec::{self, AnySerialiser, RawSerialiser},
     error::{IoError, ParserError},
     io::RecordSink,
@@ -60,6 +60,7 @@ pub struct MsrfWriter<S, W, H> {
     wtr: W,
     ser: S,
     header_state: PhantomData<H>,
+    depth: Vec<(u16, RecordId)>,
 }
 
 impl<S, W, H> MsrfWriter<S, W, H> {
@@ -75,6 +76,7 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderUninit> {
             wtr,
             ser,
             header_state: PhantomData,
+            depth: Vec::new(),
         }
     }
 
@@ -86,11 +88,29 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderUninit> {
             wtr: self.wtr,
             ser: self.ser,
             header_state: PhantomData,
+            depth: Vec::new(),
         })
     }
 }
 
 impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderInit> {
+    fn update(&mut self, meta: &RecordMeta) {
+        if let Some(count) = meta.contained()
+            && count > 0
+        {
+            self.depth.push((count, meta.clone().into()));
+        } else {
+            while let Some(cur_count) = self.depth.last_mut() {
+                (*cur_count).0 -= 1;
+                if cur_count.0 == 0 {
+                    let _ = self.depth.pop();
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
     pub fn write_record<'a>(
         &'a mut self,
         meta: RecordMeta,
@@ -102,30 +122,35 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderInit> {
             return Err(IoError::Parser(ParserError::UnexpectedEos));
         }
 
-        // Guard Byte is written later (specifically when RecordSink is dropped)
+        self.update(&meta);
+
+        // Guard Bytes are written later (specifically when RecordSink is dropped)
         self.ser.write_meta(meta, &mut self.wtr)?;
         Ok(RecordSink::new(self.wtr.by_ref(), meta.length))
     }
 
     pub fn write_record_from(
         &mut self,
-        id: RecordId,
-        buf: &[u8],
+        record: impl IntoData<S, W> + IntoMetadata<S>,
+        source_id: u16,
     ) -> Result<(), IoError<ParserError>> {
+        let meta = record.meta(&self.ser, source_id);
+
         if self.is_finished {
             return Err(IoError::Parser(ParserError::IsEos));
-        } else if id.is_eos() {
+        } else if meta.is_eos() {
             // TODO: Better handling of EoS RecordMeta
             return Err(IoError::Parser(ParserError::UnexpectedEos));
         }
 
-        let meta = RecordMeta::new(buf.len() as u64 + 1, id.source_id, id.type_id);
         self.ser.write_meta(meta, &mut self.wtr)?;
-        self.wtr.write_all(buf)?;
-        self.wtr.write_all(&[0])?;
+        record.encode_into(&mut self.wtr, &self.ser, source_id)?;
+        self.wtr.write_all(&[0u8])?;
+
         Ok(())
     }
 
+    // TODO: Call on drop()
     pub fn finish(&mut self) -> Result<(), IoError<ParserError>> {
         if self.is_finished {
             return Err(IoError::Parser(ParserError::IsEos));
@@ -133,5 +158,14 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderInit> {
 
         self.ser.write_meta(RecordMeta::new_eos(), &mut self.wtr)?;
         Ok(())
+    }
+
+    pub fn current_parent(&self) -> Option<RecordId> {
+        self.depth.last().map(|(_, id)| id).copied()
+    }
+
+    // Top down
+    pub fn parents(&self) -> impl Iterator<Item = RecordId> + DoubleEndedIterator {
+        self.depth.iter().rev().map(|(_, id)| id).copied()
     }
 }

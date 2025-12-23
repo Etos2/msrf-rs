@@ -3,6 +3,8 @@ use std::{
     num::NonZeroU16,
 };
 
+use msrf::ConstAssignedId;
+
 pub mod codec;
 pub mod error;
 pub mod reader;
@@ -15,13 +17,6 @@ pub const MSRF_EXT_VERSION: u16 = 0x00;
 pub const ID_SOURCE_ADD: u16 = 0x00;
 pub const ID_SOURCE_REMOVE: u16 = 0x01;
 
-pub trait AssignedId {
-    const TYPE_ID: u16;
-    fn type_id(&self) -> u16 {
-        Self::TYPE_ID
-    }
-}
-
 // TODO: &str
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceAdd {
@@ -32,11 +27,15 @@ pub struct SourceAdd {
 
 impl SourceAdd {
     pub fn new(id: u16, version: u16, name: impl Into<String>) -> SourceAdd {
-        SourceAdd { id, version, name: name.into() }
+        SourceAdd {
+            id,
+            version,
+            name: name.into(),
+        }
     }
 }
 
-impl AssignedId for SourceAdd {
+impl ConstAssignedId for SourceAdd {
     const TYPE_ID: u16 = ID_SOURCE_ADD;
 }
 
@@ -51,7 +50,7 @@ impl SourceRemove {
     }
 }
 
-impl AssignedId for SourceRemove {
+impl ConstAssignedId for SourceRemove {
     const TYPE_ID: u16 = ID_SOURCE_REMOVE;
 }
 
@@ -98,7 +97,10 @@ pub struct Source {
 
 impl Source {
     fn new(name: impl Into<String>, version: u16) -> Source {
-        Source { name: name.into(), version }
+        Source {
+            name: name.into(),
+            version,
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -121,7 +123,11 @@ impl SourceRegistrar {
         Self::default()
     }
 
-    pub fn register(&mut self, name: impl Into<String> + AsRef<str>, version: u16) -> Result<u16, u16> {
+    pub fn register(
+        &mut self,
+        name: impl Into<String> + AsRef<str>,
+        version: u16,
+    ) -> Result<u16, u16> {
         if let Some(id) = self.get_by_source(name.as_ref()) {
             return Err(id);
         }
@@ -193,7 +199,9 @@ impl SourceRegistrar {
     }
 
     pub fn sources(&self) -> impl Iterator<Item = (u16, &str, u16)> {
-        self.map.iter().map(|(id, src)| (*id, src.name(), src.version()))
+        self.map
+            .iter()
+            .map(|(id, src)| (*id, src.name(), src.version()))
     }
 
     fn next_free_id(&self) -> NonZeroU16 {
@@ -229,7 +237,6 @@ mod test {
 
     use super::*;
 
-    
     const ROOT_A: &str = "msrf-ext";
     const ROOT_B: &str = "arbitrary-ext";
     const SOURCE_A: &str = "pxls-space-ext";
