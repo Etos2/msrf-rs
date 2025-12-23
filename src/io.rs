@@ -1,3 +1,4 @@
+#![allow(clippy::len_without_is_empty)]
 use std::io::{Error as IoError, Read, Result as IoResult, Take, Write, copy, sink};
 
 const TAG_CONTAINS_DATA_LEN: usize = 7;
@@ -5,10 +6,12 @@ const TAG_CONTAINS_DATA_LEN: usize = 7;
 pub struct PVarint([u8; 9]);
 
 impl PVarint {
+    #[must_use] 
     pub fn new(data: [u8; 9]) -> Self {
         PVarint(data)
     }
 
+    #[must_use] 
     pub fn encode(val: u64) -> Self {
         let zeros = val.leading_zeros();
         let mut buf = [0; 9];
@@ -30,6 +33,7 @@ impl PVarint {
         PVarint(buf)
     }
 
+    #[must_use] 
     pub fn decode(&self) -> u64 {
         let mut out = [0; 8];
         let len = self.len();
@@ -43,15 +47,18 @@ impl PVarint {
         }
     }
 
+    #[must_use] 
     pub fn as_slice(&self) -> &[u8] {
         let len = self.len();
         &self.0[..len]
     }
 
+    #[must_use] 
     pub fn len(&self) -> usize {
         Self::len_from_tag(self.0[0])
     }
 
+    #[must_use] 
     pub fn len_from_tag(tag: u8) -> usize {
         tag.trailing_zeros() as usize + 1
     }
@@ -114,10 +121,12 @@ impl<'a, R: Read> RecordChunk<'a, R> {
         Self(rdr.take(limit))
     }
 
+    #[must_use] 
     pub fn len(&self) -> u64 {
         self.0.limit()
     }
 
+    #[must_use] 
     pub fn is_empty(&self) -> bool {
         self.0.limit() == 0
     }
@@ -131,13 +140,13 @@ impl<'a, R: Read> RecordChunk<'a, R> {
     }
 }
 
-impl<'a, R: Read> Read for RecordChunk<'a, R> {
+impl<R: Read> Read for RecordChunk<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         self.0.read(buf)
     }
 }
 
-impl<'a, R: Read> Drop for RecordChunk<'a, R> {
+impl<R: Read> Drop for RecordChunk<'_, R> {
     fn drop(&mut self) {
         // BufWriter<W> drop impl also performs IO (flushing) on drop, we shall pretend this is normal
         let _res = self.drain();
@@ -154,10 +163,12 @@ impl<'a, W: Write> RecordSink<'a, W> {
         Self { wtr, limit }
     }
 
-    pub fn len(&self) -> u64 {
+    #[must_use] 
+    pub fn limit(&self) -> u64 {
         self.limit
     }
 
+    #[must_use] 
     pub fn is_finished(&self) -> bool {
         self.limit == 0
     }
@@ -174,7 +185,7 @@ impl<'a, W: Write> RecordSink<'a, W> {
     }
 }
 
-impl<'a, W: Write> Write for RecordSink<'a, W> {
+impl<W: Write> Write for RecordSink<'_, W> {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
         let len = buf.len().min(self.limit as usize);
         self.limit -= len as u64;
@@ -187,7 +198,7 @@ impl<'a, W: Write> Write for RecordSink<'a, W> {
 }
 
 // BufWriter<W> drop impl also performs IO (flushing) on drop, we shall pretend this is normal
-impl<'a, W: Write> Drop for RecordSink<'a, W> {
+impl<W: Write> Drop for RecordSink<'_, W> {
     fn drop(&mut self) {
         let _ = self.finish_impl();
     }

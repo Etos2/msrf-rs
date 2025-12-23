@@ -22,16 +22,13 @@ impl RawSerialiser for Serialiser {
         wtr.write_u16(meta.source_id)?;
 
         if !meta.is_eos() {
-            match meta.contained() {
-                Some(c) => {
-                    wtr.write_u16(meta.type_id | TYPE_CONTAINER_MASK)?;
-                    wtr.write_varint(meta.length)?;
-                    wtr.write_u16(c)?;
-                }
-                None => {
-                    wtr.write_u16(meta.type_id)?;
-                    wtr.write_varint(meta.length)?;
-                }
+            if let Some(c) = meta.contained() {
+                wtr.write_u16(meta.type_id | TYPE_CONTAINER_MASK)?;
+                wtr.write_varint(meta.length)?;
+                wtr.write_u16(c)?;
+            } else {
+                wtr.write_u16(meta.type_id)?;
+                wtr.write_varint(meta.length)?;
             }
         }
 

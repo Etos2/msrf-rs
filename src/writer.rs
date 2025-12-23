@@ -22,10 +22,12 @@ impl Default for MsrfWriterBuilder {
 
 // TODO: Smart version handling (track statically if valid)
 impl MsrfWriterBuilder {
+    #[must_use] 
     pub fn new() -> Self {
         MsrfWriterBuilder::default()
     }
 
+    #[must_use] 
     pub fn version(mut self, version: u16) -> Option<MsrfWriterBuilder> {
         if version > CURRENT_VERSION {
             return None;
@@ -35,9 +37,9 @@ impl MsrfWriterBuilder {
     }
 
     // TODO: Error
-    pub fn build<W: Write>(self, wtr: W) -> Result<MsrfWriter<AnySerialiser, W, HeaderUninit>, ()> {
-        let ser = AnySerialiser::new_default(self.version).ok_or(())?;
-        Ok(MsrfWriter::new(wtr, ser))
+    pub fn build<W: Write>(self, wtr: W) -> Option<MsrfWriter<AnySerialiser, W, HeaderUninit>> {
+        let ser = AnySerialiser::new_default(self.version)?;
+        Some(MsrfWriter::new(wtr, ser))
     }
 
     pub fn build_with<W: Write, S: RawSerialiser>(
@@ -64,6 +66,7 @@ pub struct MsrfWriter<S, W, H> {
 }
 
 impl<S, W, H> MsrfWriter<S, W, H> {
+    #[must_use] 
     pub fn builder() -> MsrfWriterBuilder {
         MsrfWriterBuilder::new()
     }
@@ -82,7 +85,7 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderUninit> {
 
     pub fn initialise(mut self) -> Result<MsrfWriter<S, W, HeaderInit>, IoError<ParserError>> {
         let header = Header::new(CURRENT_VERSION);
-        codec::write_header(&mut self.wtr, header)?;
+        codec::write_header(&mut self.wtr, &header)?;
         Ok(MsrfWriter {
             is_finished: self.is_finished,
             wtr: self.wtr,
@@ -98,10 +101,10 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderInit> {
         if let Some(count) = meta.contained()
             && count > 0
         {
-            self.depth.push((count, meta.clone().into()));
+            self.depth.push((count, (*meta).into()));
         } else {
             while let Some(cur_count) = self.depth.last_mut() {
-                (*cur_count).0 -= 1;
+                cur_count.0 -= 1;
                 if cur_count.0 == 0 {
                     let _ = self.depth.pop();
                 } else {
@@ -111,10 +114,10 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderInit> {
         }
     }
 
-    pub fn write_record<'a>(
-        &'a mut self,
+    pub fn write_record(
+        &mut self,
         meta: RecordMeta,
-    ) -> Result<RecordSink<'a, W>, IoError<ParserError>> {
+    ) -> Result<RecordSink<'_, W>, IoError<ParserError>> {
         if self.is_finished {
             return Err(IoError::Parser(ParserError::IsEos));
         } else if meta.is_eos() {
@@ -165,7 +168,7 @@ impl<S: RawSerialiser, W: Write> MsrfWriter<S, W, HeaderInit> {
     }
 
     // Top down
-    pub fn parents(&self) -> impl Iterator<Item = RecordId> + DoubleEndedIterator {
+    pub fn parents(&self) -> impl DoubleEndedIterator<Item = RecordId> {
         self.depth.iter().rev().map(|(_, id)| id).copied()
     }
 }

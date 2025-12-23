@@ -38,6 +38,7 @@ pub enum AnyDeserialiser {
 }
 
 impl AnyDeserialiser {
+    #[must_use] 
     pub fn new(version: u16, options: DesOptions) -> Option<Self> {
         if version > CURRENT_VERSION {
             None
@@ -46,6 +47,7 @@ impl AnyDeserialiser {
         }
     }
 
+    #[must_use] 
     pub fn new_default(version: u16) -> Option<Self> {
         if version > CURRENT_VERSION {
             None
@@ -76,6 +78,7 @@ pub enum AnySerialiser {
 }
 
 impl AnySerialiser {
+    #[must_use] 
     pub fn new(version: u16, options: SerOptions) -> Option<Self> {
         if version > CURRENT_VERSION {
             None
@@ -84,6 +87,7 @@ impl AnySerialiser {
         }
     }
 
+    #[must_use] 
     pub fn new_default(version: u16) -> Option<Self> {
         if version > CURRENT_VERSION {
             None
@@ -131,7 +135,7 @@ pub fn read_header(input: &[u8; HEADER_LEN]) -> Result<Header, ParserError> {
     Ok(Header { version })
 }
 
-pub fn write_header<W: Write>(mut wtr: W, header: Header) -> Result<(), IoError<ParserError>> {
+pub fn write_header<W: Write>(mut wtr: W, header: &Header) -> Result<(), IoError<ParserError>> {
     wtr.write_all(&MAGIC_BYTES)?;
     wtr.write_all(&header.version().to_le_bytes())?;
     wtr.write_all(&[0x00])?;
@@ -163,7 +167,7 @@ impl<S: RawSerialiser, W: Write, T: Clone + IntoData<S, W>> DynClone<S, W> for T
 
 impl<'a, S: RawSerialiser + 'a, W: Write + 'a> IntoData<S, W> for Box<dyn IntoData<S, W> + 'a> {
     fn encode_into(&self, wtr: &mut W, ser: &S, source_id: u16) -> Result<(), IoError<ParserError>> {
-        (**self).encode_into(wtr, &ser, source_id)
+        (**self).encode_into(wtr, ser, source_id)
     }
 }
 

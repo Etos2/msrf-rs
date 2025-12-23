@@ -44,10 +44,12 @@ pub struct Header {
 }
 
 impl Header {
+    #[must_use] 
     pub const fn new(version: u16) -> Self {
         Self { version }
     }
 
+    #[must_use] 
     pub const fn version(&self) -> u16 {
         self.version
     }
@@ -70,6 +72,7 @@ pub struct RecordMeta {
 }
 
 impl RecordMeta {
+    #[must_use] 
     pub const fn new(source_id: u16, type_id: u16, length: u64) -> Self {
         Self {
             length,
@@ -79,6 +82,7 @@ impl RecordMeta {
         }
     }
 
+    #[must_use] 
     pub const fn new_container(source_id: u16, type_id: u16, length: u64, contained: u16) -> Self {
         Self {
             source_id,
@@ -88,6 +92,7 @@ impl RecordMeta {
         }
     }
 
+    #[must_use] 
     pub fn new_eos() -> Self {
         Self {
             length: 0,
@@ -97,34 +102,42 @@ impl RecordMeta {
         }
     }
 
+    #[must_use] 
     pub const fn len(&self) -> u64 {
         self.length
     }
 
+    #[must_use] 
     pub const fn is_empty(&self) -> bool {
         self.length == 0
     }
 
+    #[must_use] 
     pub const fn is_eos(&self) -> bool {
         self.source_id == RECORD_EOS
     }
 
+    #[must_use] 
     pub const fn source_id(&self) -> u16 {
         self.source_id
     }
 
+    #[must_use] 
     pub const fn type_id(&self) -> u16 {
         self.type_id
     }
 
+    #[must_use] 
     pub const fn is_container(&self) -> bool {
         self.contained.is_some()
     }
 
+    #[must_use] 
     pub const fn value_len(&self) -> u64 {
         self.length
     }
 
+    #[must_use] 
     pub const fn contained(&self) -> Option<u16> {
         self.contained
     }
@@ -137,10 +150,12 @@ pub struct RecordId {
 }
 
 impl RecordId {
+    #[must_use] 
     pub const fn new(source_id: u16, type_id: u16) -> Self {
         Self { source_id, type_id }
     }
 
+    #[must_use] 
     pub fn new_eos() -> Self {
         Self {
             source_id: RECORD_EOS,
@@ -148,18 +163,22 @@ impl RecordId {
         }
     }
 
+    #[must_use] 
     pub const fn is_eos(&self) -> bool {
         self.source_id == RECORD_EOS
     }
 
+    #[must_use]
     pub const fn source_id(&self) -> u16 {
         self.source_id
     }
 
+    #[must_use]
     pub const fn type_id(&self) -> u16 {
         self.type_id & !TYPE_CONTAINER_MASK
     }
 
+    #[must_use]
     pub const fn into_meta(self, len: u64) -> RecordMeta {
         RecordMeta::new(self.source_id, self.type_id, len)
     }

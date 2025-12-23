@@ -15,20 +15,22 @@ pub struct MsrfReaderBuilder {
 }
 
 impl MsrfReaderBuilder {
+    #[must_use] 
     pub fn new() -> Self {
         MsrfReaderBuilder::default()
     }
 
+    #[must_use] 
     pub fn version(mut self, version: u16) -> MsrfReaderBuilder {
         self.version = Some(version);
         self
     }
 
     // TODO: Error
-    pub fn build<R: Read>(self, wtr: R) -> Result<MsrfReader<AnyDeserialiser, R>, ()> {
+    pub fn build<R: Read>(self, wtr: R) -> Option<MsrfReader<AnyDeserialiser, R>> {
         let version = self.version.unwrap_or(CURRENT_VERSION);
-        let des = AnyDeserialiser::new_default(version).ok_or(())?;
-        Ok(MsrfReader::new(wtr, des))
+        let des = AnyDeserialiser::new_default(version)?;
+        Some(MsrfReader::new(wtr, des))
     }
 
     pub fn build_with_unknown<R: Read>(self, wtr: R) -> MsrfReader<UnknownSerdes, R> {
@@ -82,9 +84,9 @@ impl<D: RawDeserialiser, R: Read> MsrfReader<D, R> {
         }
     }
 
-    pub fn read_record<'a>(
-        &'a mut self,
-    ) -> Result<Option<(RecordId, RecordChunk<'a, R>)>, IoError<ParserError>> {
+    pub fn read_record(
+        &mut self,
+    ) -> Result<Option<(RecordId, RecordChunk<'_, R>)>, IoError<ParserError>> {
         let record = self.des.read_meta(&mut self.rdr)?;
         if record.is_eos() {
             return if self.is_finished {
