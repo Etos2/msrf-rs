@@ -1,8 +1,8 @@
 use std::{fmt::Debug, io::Write, marker::PhantomData};
 
 use crate::{
-    CURRENT_VERSION, Header, IntoData, IntoMetadata, RecordId, RecordMeta,
-    codec::{self, AnySerialiser, RawSerialiser},
+    CURRENT_VERSION, Header, IntoMetadata, RecordId, RecordMeta,
+    codec::{self, AnySerialiser, IntoData, RawSerialiser},
     error::{IoError, ParserError},
     io::RecordSink,
 };

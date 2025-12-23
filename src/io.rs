@@ -1,6 +1,67 @@
 use std::io::{Error as IoError, Read, Result as IoResult, Take, Write, copy, sink};
 
-use crate::codec::varint;
+const TAG_CONTAINS_DATA_LEN: usize = 7;
+
+pub struct PVarint([u8; 9]);
+
+impl PVarint {
+    pub fn new(data: [u8; 9]) -> Self {
+        PVarint(data)
+    }
+
+    pub fn encode(val: u64) -> Self {
+        let zeros = val.leading_zeros();
+        let mut buf = [0; 9];
+
+        // Catch empty u64
+        if zeros == 64 {
+            buf[0] = 0x01;
+        // Catch full u64
+        } else if zeros == 0 {
+            buf[1..].copy_from_slice(&val.to_le_bytes());
+        // Catch var u64
+        } else {
+            let bytes = 8 - ((zeros - 1) / TAG_CONTAINS_DATA_LEN as u32) as usize;
+            let data = val << (bytes + 1);
+            buf[..=bytes].copy_from_slice(&data.to_le_bytes()[..=bytes]);
+            buf[0] |= if bytes >= 8 { 0 } else { 0x01 << bytes };
+        }
+
+        PVarint(buf)
+    }
+
+    pub fn decode(&self) -> u64 {
+        let mut out = [0; 8];
+        let len = self.len();
+
+        if len <= TAG_CONTAINS_DATA_LEN {
+            out[..len].copy_from_slice(&self.0[..len]);
+            u64::from_le_bytes(out) >> len
+        } else {
+            out[..len - 1].copy_from_slice(&self.0[1..len]);
+            u64::from_le_bytes(out)
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        let len = self.len();
+        &self.0[..len]
+    }
+
+    pub fn len(&self) -> usize {
+        Self::len_from_tag(self.0[0])
+    }
+
+    pub fn len_from_tag(tag: u8) -> usize {
+        tag.trailing_zeros() as usize + 1
+    }
+}
+
+impl From<PVarint> for u64 {
+    fn from(pv: PVarint) -> Self {
+        pv.decode()
+    }
+}
 
 pub trait ReadExt {
     fn read_chunk<const N: usize>(&mut self) -> Result<[u8; N], IoError>;
@@ -19,9 +80,10 @@ impl<R: Read> ReadExt for R {
     fn read_varint(&mut self) -> Result<u64, IoError> {
         let mut buf = [0; 9];
         self.read_exact(&mut buf[..1])?;
-        let len = varint::len(buf[0]);
+        let len = PVarint::len_from_tag(buf[0]);
         self.read_exact(&mut buf[1..len])?;
-        Ok(varint::from_le_bytes(&buf))
+        let pv = PVarint::new(buf);
+        Ok(pv.decode())
     }
 
     fn read_u16(&mut self) -> Result<u16, IoError> {
@@ -36,9 +98,8 @@ pub trait WriteExt {
 
 impl<W: Write> WriteExt for W {
     fn write_varint(&mut self, val: u64) -> Result<(), IoError> {
-        let varint = varint::to_le_bytes(val);
-        let len = varint::len(varint[0]);
-        self.write_all(&varint[..len])
+        let varint = PVarint::encode(val);
+        self.write_all(varint.as_slice())
     }
 
     fn write_u16(&mut self, val: u16) -> Result<(), IoError> {
@@ -134,4 +195,32 @@ impl<'a, W: Write> Drop for RecordSink<'a, W> {
 
 pub trait SizedRecord<S> {
     fn encoded_len(&self, ser: &S) -> usize;
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn serialise_pvarint_2() {
+        fn harness(val: u64) {
+            let varint = PVarint::encode(val);
+            let varint_value = varint.decode();
+            assert_eq!(
+                val, varint_value,
+                "failed to manually encode/decode {val:X} != {varint_value:X}"
+            );
+        }
+
+        harness(0x00); // 2^7-1
+        harness(0x7F); // 2^7-1
+        harness(0x3FFF); // 2^14-1
+        harness(0x1FFFFF); // 2^21-1
+        harness(0xFFFFFFF); // 2^28-1
+        harness(0x7FFFFFFFF); // 2^35-1
+        harness(0x3FFFFFFFFFF); // 2^42-1
+        harness(0x1FFFFFFFFFFFF); // 2^49-1
+        harness(0xFFFFFFFFFFFFFF); // 2^56-1
+        harness(0xFFFFFFFFFFFFFFFF); // 2^64
+    }
 }

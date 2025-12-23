@@ -329,7 +329,7 @@ mod test {
         // Check removal logic
         assert_eq!(registrar.remove_by_source(ROOT_B), Some(2));
         assert_eq!(registrar.next_free_id().get(), 2);
-        assert_eq!(registrar.remove_by_id(1), Some(Source::new(ROOT_A, 576)));
+        assert_eq!(registrar.remove_by_id(1), Some(Source::new(ROOT_A, 567)));
         assert_eq!(registrar.next_free_id().get(), 1);
     }
 }

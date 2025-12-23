@@ -1,8 +1,8 @@
 use std::io::{Read, Write};
 
-use crate::codec::{DesOptions, RawDeserialiser, RawSerialiser, SerOptions, varint};
+use crate::codec::{DesOptions, RawDeserialiser, RawSerialiser, SerOptions};
 use crate::error::{IoError, ParserError};
-use crate::io::{ReadExt, WriteExt};
+use crate::io::{PVarint, ReadExt, WriteExt};
 use crate::{RECORD_EOS, RecordMeta, TYPE_CONTAINER_MASK};
 
 pub const VERSION: usize = 0;
@@ -39,9 +39,9 @@ impl RawSerialiser for Serialiser {
     }
 
     fn encoded_meta_len(&self, user_len: usize) -> usize {
-        let varint_bytes = varint::to_le_bytes(user_len as u64);
-        let varint_len = varint::len(varint_bytes[0]);
-        varint_len + ID_LEN
+        // TODO: Avoid full encode when len is needed?
+        let pv = PVarint::encode(user_len as u64);
+        pv.len() + ID_LEN
     }
 }
 
