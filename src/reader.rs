@@ -1,7 +1,7 @@
 use std::io::Read;
 
 use crate::{
-    CURRENT_VERSION, RecordId,
+    CURRENT_VERSION, RecordId, RecordMeta,
     codec::{self, AnyDeserialiser, RawDeserialiser, UnknownSerdes, constants::HEADER_LEN},
     error::{IoError, ParserError},
     io::RecordChunk,
@@ -15,12 +15,12 @@ pub struct MsrfReaderBuilder {
 }
 
 impl MsrfReaderBuilder {
-    #[must_use] 
+    #[must_use]
     pub fn new() -> Self {
         MsrfReaderBuilder::default()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn version(mut self, version: u16) -> MsrfReaderBuilder {
         self.version = Some(version);
         self
@@ -48,6 +48,7 @@ pub struct MsrfReader<D, R> {
     is_finished: bool,
     rdr: R,
     des: D,
+    depth: Vec<(u16, RecordId)>,
 }
 
 impl<R: Read> MsrfReader<UnknownSerdes, R> {
@@ -56,6 +57,7 @@ impl<R: Read> MsrfReader<UnknownSerdes, R> {
             is_finished: false,
             rdr,
             des: UnknownSerdes,
+            depth: Vec::new(),
         }
     }
 
@@ -71,6 +73,7 @@ impl<R: Read> MsrfReader<UnknownSerdes, R> {
             is_finished: false,
             rdr: self.rdr,
             des,
+            depth: Vec::new(),
         })
     }
 }
@@ -81,9 +84,28 @@ impl<D: RawDeserialiser, R: Read> MsrfReader<D, R> {
             is_finished: false,
             rdr,
             des,
+            depth: Vec::new(),
         }
     }
 
+    fn update(&mut self, meta: &RecordMeta) {
+        if let Some(count) = meta.contained()
+            && count > 0
+        {
+            self.depth.push((count, (*meta).into()));
+        } else {
+            while let Some(cur_count) = self.depth.last_mut() {
+                cur_count.0 -= 1;
+                if cur_count.0 == 0 {
+                    let _ = self.depth.pop();
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    // TODO: Return Err(ParserError::IsEos) on EoS byte rather than Some(None)?
     pub fn read_record(
         &mut self,
     ) -> Result<Option<(RecordId, RecordChunk<'_, R>)>, IoError<ParserError>> {
@@ -97,9 +119,18 @@ impl<D: RawDeserialiser, R: Read> MsrfReader<D, R> {
             };
         }
 
+        self.update(&record);
         let ref_rdr = RecordChunk::new(&mut self.rdr, record.length);
-        let id = RecordId::from(record);
-        Ok(Some((id, ref_rdr)))
+        Ok(Some((record.into(), ref_rdr)))
+    }
+
+    pub fn current_parent(&self) -> Option<RecordId> {
+        self.depth.last().map(|(_, id)| id).copied()
+    }
+
+    // Top down
+    pub fn parents(&self) -> impl DoubleEndedIterator<Item = RecordId> {
+        self.depth.iter().rev().map(|(_, id)| id).copied()
     }
 }
 
