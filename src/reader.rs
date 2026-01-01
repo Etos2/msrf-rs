@@ -108,20 +108,21 @@ impl<D: RawDeserialiser, R: Read> MsrfReader<D, R> {
     // TODO: Return Err(ParserError::IsEos) on EoS byte rather than Some(None)?
     pub fn read_record(
         &mut self,
-    ) -> Result<Option<(RecordId, RecordChunk<'_, R>)>, IoError<ParserError>> {
+    ) -> Result<(RecordId, RecordChunk<'_, R>), IoError<ParserError>> {
+        if self.is_finished {
+            return Err(IoError::Parser(ParserError::IsEos));
+        }
+
         let record = self.des.read_meta(&mut self.rdr)?;
+
         if record.is_eos() {
-            return if self.is_finished {
-                Err(IoError::Parser(ParserError::IsEos))
-            } else {
-                self.is_finished = true;
-                Ok(None)
-            };
+            self.is_finished = true;
+            return Err(IoError::Parser(ParserError::IsEos));
         }
 
         self.update(&record);
         let ref_rdr = RecordChunk::new(&mut self.rdr, record.length);
-        Ok(Some((record.into(), ref_rdr)))
+        Ok((record.into(), ref_rdr))
     }
 
     pub fn current_parent(&self) -> Option<RecordId> {
@@ -176,8 +177,7 @@ mod test {
         let internal_rdr = Cursor::new(data);
         let mut reader = MsrfReader::new(internal_rdr, v0::Deserialiser::default());
 
-        let res = reader.read_record().expect("failed to parse record");
-        let (id, mut user_rdr) = res.expect("unexpected eos");
+        let (id, mut user_rdr) = reader.read_record().expect("failed to parse record");
         assert_eq!(id, REF_RECORD_META.into());
         assert_eq!(user_rdr.len(), REF_RECORD_META.len());
 
