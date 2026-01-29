@@ -4,7 +4,10 @@ use std::fmt::Debug;
 use std::io::{Read, Write};
 
 use crate::{
-    AssignedId, CURRENT_VERSION, Header, RecordMeta, codec::constants::{HEADER_LEN, MAGIC_BYTES}, error::{IoError, ParserError}, io::SizedRecord
+    CURRENT_VERSION, Header, RecordMeta,
+    codec::constants::{HEADER_LEN, MAGIC_BYTES},
+    error::{IoError, ParserError},
+    io::SizedValue,
 };
 
 pub(crate) mod constants {
@@ -38,7 +41,7 @@ pub enum AnyDeserialiser {
 }
 
 impl AnyDeserialiser {
-    #[must_use] 
+    #[must_use]
     pub fn new(version: u16, options: DesOptions) -> Option<Self> {
         if version > CURRENT_VERSION {
             None
@@ -47,7 +50,7 @@ impl AnyDeserialiser {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn new_default(version: u16) -> Option<Self> {
         if version > CURRENT_VERSION {
             None
@@ -78,7 +81,7 @@ pub enum AnySerialiser {
 }
 
 impl AnySerialiser {
-    #[must_use] 
+    #[must_use]
     pub fn new(version: u16, options: SerOptions) -> Option<Self> {
         if version > CURRENT_VERSION {
             None
@@ -87,7 +90,7 @@ impl AnySerialiser {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn new_default(version: u16) -> Option<Self> {
         if version > CURRENT_VERSION {
             None
@@ -110,7 +113,7 @@ impl RawSerialiser for AnySerialiser {
             AnySerialiser::V0(ser) => ser.write_meta(meta, wtr),
         }
     }
-    
+
     fn encoded_meta_len(&self, user_len: usize) -> usize {
         match self {
             AnySerialiser::V0(ser) => ser.encoded_meta_len(user_len),
@@ -142,57 +145,32 @@ pub fn write_header<W: Write>(mut wtr: W, header: &Header) -> Result<(), IoError
     Ok(())
 }
 
-pub trait IntoData<S, W>: AssignedId + SizedRecord<S> + DynClone<S, W> + Debug
+pub trait IntoData<S, W>: SizedValue<S> + Debug
 where
     W: Write,
     S: RawSerialiser,
 {
-    fn encode_into(&self, wtr: &mut W, ser: &S, source_id: u16) -> Result<(), IoError<ParserError>>;
+    fn encode_into(&self, wtr: &mut W, ser: &S, source_id: u16)
+    -> Result<(), IoError<ParserError>>;
 }
 
-pub trait DynClone<S: RawSerialiser, W: Write> {
-    fn dyn_clone<'s>(&self) -> Box<dyn IntoData<S, W> + 's>
-    where
-        Self: 's;
-}
+impl<S, W, T> IntoData<S, W> for &[T]
+where
+    W: Write,
+    S: RawSerialiser,
+    T: IntoData<S, W>,
+{
+    fn encode_into(
+        &self,
+        wtr: &mut W,
+        ser: &S,
+        source_id: u16,
+    ) -> Result<(), IoError<ParserError>> {
+        for entry in *self {
+            entry.encode_into(wtr, ser, source_id)?;
+        }
 
-impl<S: RawSerialiser, W: Write, T: Clone + IntoData<S, W>> DynClone<S, W> for T {
-    fn dyn_clone<'s>(&self) -> Box<dyn IntoData<S, W> + 's>
-    where
-        Self: 's,
-    {
-        Box::new(self.clone())
-    }
-}
-
-impl<'a, S: RawSerialiser + 'a, W: Write + 'a> IntoData<S, W> for Box<dyn IntoData<S, W> + 'a> {
-    fn encode_into(&self, wtr: &mut W, ser: &S, source_id: u16) -> Result<(), IoError<ParserError>> {
-        (**self).encode_into(wtr, ser, source_id)
-    }
-}
-
-impl<S: RawSerialiser, W: Write> AssignedId for Box<dyn IntoData<S, W> + '_> {
-    fn typ_id(&self) -> u16 {
-        (**self).typ_id()
-    }
-}
-
-impl<S: RawSerialiser, W: Write> SizedRecord<S> for Box<dyn IntoData<S, W> + '_> {
-    fn encoded_len(&self, ser: &S) -> usize {
-        (**self).encoded_len(ser)
-    }
-}
-
-impl<'a, S: RawSerialiser + 'a, W: Write + 'a> Clone for Box<dyn IntoData<S, W> + 'a> {
-    fn clone(&self) -> Self {
-        (**self).dyn_clone()
-    }
-}
-
-impl<'a, S: RawSerialiser + 'a, W: Write + 'a> ToOwned for dyn IntoData<S, W> + 'a {
-    type Owned = Box<dyn IntoData<S, W> + 'a>;
-    fn to_owned(&self) -> Self::Owned {
-        self.dyn_clone()
+        Ok(())
     }
 }
 

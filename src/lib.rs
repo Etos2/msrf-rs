@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::io::SizedRecord;
+use crate::io::SizedValue;
 
 #[cfg(any(feature = "reader", feature = "writer"))]
 pub mod codec;
@@ -32,7 +32,7 @@ where
     }
 }
 
-pub trait IntoMetadata<S>: AssignedId + SizedRecord<S> {
+pub trait IntoMetadata<S>: AssignedId + SizedValue<S> {
     fn meta(&self, ser: &S, source_id: u16) -> RecordMeta {
         RecordMeta::new(source_id, self.typ_id(), self.encoded_len(ser) as u64)
     }

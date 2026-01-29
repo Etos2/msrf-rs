@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use msrf::{IntoMetadata, RecordMeta, error::IoError, io::SizedRecord};
+use msrf::{IntoMetadata, RecordMeta, error::IoError, io::SizedValue};
 
 use crate::{
     Record, SourceAdd, SourceRemove,
@@ -39,7 +39,7 @@ pub struct MsrfExtWriter<S> {
 }
 
 impl<S: RawSerialiser> MsrfExtWriter<S> {
-    pub fn record_len<T: SizedRecord<S>>(&self, record: &T) -> usize {
+    pub fn record_len<T: SizedValue<S>>(&self, record: &T) -> usize {
         record.encoded_len(&self.ser)
     }
 }

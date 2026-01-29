@@ -5,7 +5,7 @@ use crate::{
     codec::{RawDeserialiser, RawSerialiser},
     error::DesError,
 };
-use msrf::{IntoMetadata, error::IoError, io::SizedRecord};
+use msrf::{IntoMetadata, error::IoError, io::SizedValue};
 
 const SOURCE_ADD_LEN: usize = 4;
 const SOURCE_REMOVE_LEN: usize = 2;
@@ -64,14 +64,14 @@ impl RawDeserialiser for Deserialiser {
     }
 }
 
-impl SizedRecord<Serialiser> for SourceAdd {
+impl SizedValue<Serialiser> for SourceAdd {
     fn encoded_len(&self, _ser: &Serialiser) -> usize {
         // ID: u16 + Version: u16 + Name: Variable
         size_of::<u16>() * 2 + self.name.len()
     }
 }
 
-impl SizedRecord<Serialiser> for SourceRemove {
+impl SizedValue<Serialiser> for SourceRemove {
     fn encoded_len(&self, _ser: &Serialiser) -> usize {
         // ID: u16
         size_of::<u16>()

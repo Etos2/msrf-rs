@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 
-use msrf::{IntoMetadata, error::IoError, io::SizedRecord};
+use msrf::{IntoMetadata, error::IoError, io::SizedValue};
 
 use crate::{
     MSRF_EXT_VERSION, SourceAdd, SourceRemove,
@@ -80,7 +80,7 @@ impl AnySerialiser {
     }
 }
 
-impl SizedRecord<AnySerialiser> for SourceAdd {
+impl SizedValue<AnySerialiser> for SourceAdd {
     fn encoded_len(&self, ser: &AnySerialiser) -> usize {
         match ser {
             AnySerialiser::V0(ser) => self.encoded_len(ser),
@@ -88,7 +88,7 @@ impl SizedRecord<AnySerialiser> for SourceAdd {
     }
 }
 
-impl SizedRecord<AnySerialiser> for SourceRemove {
+impl SizedValue<AnySerialiser> for SourceRemove {
     fn encoded_len(&self, ser: &AnySerialiser) -> usize {
         match ser {
             AnySerialiser::V0(ser) => self.encoded_len(ser),

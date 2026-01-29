@@ -6,12 +6,12 @@ const TAG_CONTAINS_DATA_LEN: usize = 7;
 pub struct PVarint([u8; 9]);
 
 impl PVarint {
-    #[must_use] 
+    #[must_use]
     pub fn new(data: [u8; 9]) -> Self {
         PVarint(data)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn encode(val: u64) -> Self {
         let zeros = val.leading_zeros();
         let mut buf = [0; 9];
@@ -33,7 +33,7 @@ impl PVarint {
         PVarint(buf)
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn decode(&self) -> u64 {
         let mut out = [0; 8];
         let len = self.len();
@@ -47,18 +47,18 @@ impl PVarint {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         let len = self.len();
         &self.0[..len]
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn len(&self) -> usize {
         Self::len_from_tag(self.0[0])
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn len_from_tag(tag: u8) -> usize {
         tag.trailing_zeros() as usize + 1
     }
@@ -121,12 +121,12 @@ impl<'a, R: Read> RecordChunk<'a, R> {
         Self(rdr.take(limit))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn len(&self) -> u64 {
         self.0.limit()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.limit() == 0
     }
@@ -153,59 +153,17 @@ impl<R: Read> Drop for RecordChunk<'_, R> {
     }
 }
 
-pub struct RecordSink<'a, W: Write> {
-    wtr: &'a mut W,
-    limit: u64,
-}
-
-impl<'a, W: Write> RecordSink<'a, W> {
-    pub(crate) fn new(wtr: &'a mut W, limit: u64) -> Self {
-        Self { wtr, limit }
-    }
-
-    #[must_use] 
-    pub fn limit(&self) -> u64 {
-        self.limit
-    }
-
-    #[must_use] 
-    pub fn is_finished(&self) -> bool {
-        self.limit == 0
-    }
-
-    fn finish_impl(&mut self) -> IoResult<u64> {
-        let zeros = self.limit + 1;
-        let blanked = copy(&mut std::io::repeat(0).take(zeros), &mut self.wtr)?;
-        self.wtr.flush()?;
-        Ok(blanked - 1)
-    }
-
-    pub fn finish(mut self) -> IoResult<u64> {
-        self.finish_impl()
-    }
-}
-
-impl<W: Write> Write for RecordSink<'_, W> {
-    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
-        let len = buf.len().min(self.limit as usize);
-        self.limit -= len as u64;
-        self.wtr.write(&buf[..len])
-    }
-
-    fn flush(&mut self) -> IoResult<()> {
-        self.wtr.flush()
-    }
-}
-
-// BufWriter<W> drop impl also performs IO (flushing) on drop, we shall pretend this is normal
-impl<W: Write> Drop for RecordSink<'_, W> {
-    fn drop(&mut self) {
-        let _ = self.finish_impl();
-    }
-}
-
-pub trait SizedRecord<S> {
+pub trait SizedValue<S> {
     fn encoded_len(&self, ser: &S) -> usize;
+}
+
+impl<S, T> SizedValue<S> for &[T]
+where
+    T: SizedValue<S>,
+{
+    fn encoded_len(&self, ser: &S) -> usize {
+        self.iter().map(|d| d.encoded_len(ser)).sum()
+    }
 }
 
 #[cfg(test)]
